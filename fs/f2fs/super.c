@@ -39,19 +39,6 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/f2fs.h>
 
-#ifdef CONFIG_HUAWEI_F2FS_DSM
-#include <dsm/dsm_pub.h>
-struct dsm_dev dsm_f2fs = {
-    .name = "dsm_f2fs",
-    .device_name = NULL,
-    .ic_name = NULL,
-    .module_name = NULL,
-    .fops = NULL,
-    .buff_size = 1024,
-};
-struct dsm_client *f2fs_dclient = NULL;
-#endif
-
 static bool restart = false;
 static struct workqueue_struct *f2fs_wq;
 static struct work_struct f2fs_work;
@@ -337,28 +324,11 @@ void f2fs_msg(struct super_block *sb, const char *level, const char *fmt, ...)
 {
 	struct va_format vaf;
 	va_list args;
-#ifdef CONFIG_HUAWEI_F2FS_DSM
-	char buf[256] = {0};
-#endif
-
 	va_start(args, fmt);
 	vaf.fmt = fmt;
 	vaf.va = &args;
 	printk("%sF2FS-fs (%s): %pV\n", level, sb->s_id, &vaf);
-
-#ifdef CONFIG_HUAWEI_F2FS_DSM
-	vscnprintf(buf, sizeof(buf), fmt, args);
-#endif
 	va_end(args);
-
-#ifdef CONFIG_HUAWEI_F2FS_DSM
-	if(!strcmp(level, KERN_ERR) || !strcmp(level, KERN_WARNING)) {
-		if (f2fs_dclient && !dsm_client_ocuppy(f2fs_dclient)) {
-			dsm_client_record(f2fs_dclient,"%sF2FS-fs (%s): %s\n", level, sb->s_id, buf);
-			dsm_client_notify(f2fs_dclient, DSM_F2FS_NEED_FSCK);
-		}
-	}
-#endif
 }
 
 static void init_once(void *foo)
@@ -2048,14 +2018,6 @@ static int __init init_f2fs_fs(void)
 	if (err)
 		goto free_filesystem;
 	f2fs_proc_root = proc_mkdir("fs/f2fs", NULL);
-
-#ifdef CONFIG_HUAWEI_F2FS_DSM
-	if(!f2fs_dclient)
-	{
-		f2fs_dclient = dsm_register_client(&dsm_f2fs);
-	}
-#endif
-
 	return 0;
 
 free_filesystem:

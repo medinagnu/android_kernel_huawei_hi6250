@@ -383,20 +383,6 @@ void f2fs_balance_fs(struct f2fs_sb_info *sbi, bool need)
 	 * dir/node pages without enough free segments.
 	 */
 	if (has_not_enough_free_secs(sbi, 0)) {
-#ifdef CONFIG_HUAWEI_F2FS_DSM
-		/* report this behavor to DSM */
-		if (((FG_GC_count++ % 100) == 0) && f2fs_dclient
-					&&!dsm_client_ocuppy(f2fs_dclient)) {
-			dsm_client_record(f2fs_dclient,
-			"FG_GC: Size=%lldMB,Free=%lldMB,count=%d,free_sec=%d,reserved_sec=%d,node_secs=%d,dent_secs=%d\n",
-			(le64_to_cpu(sbi->user_block_count) * sbi->blocksize) /1024/1024,
-			(le64_to_cpu(sbi->user_block_count - valid_user_blocks(sbi)) * sbi->blocksize) /1024/1024,
-			FG_GC_count, free_sections(sbi), reserved_sections(sbi),
-			get_blocktype_secs(sbi, F2FS_DIRTY_NODES), get_blocktype_secs(sbi, F2FS_DIRTY_DENTS));
-			dsm_client_notify(f2fs_dclient, DSM_F2FS_FG_BG_GC_MSG);
-		}
-#endif
-
 		mutex_lock(&sbi->gc_mutex);
 		/*lint -save -e747*/
 		f2fs_gc(sbi, false, false);

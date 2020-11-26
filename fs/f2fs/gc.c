@@ -77,20 +77,6 @@ static int gc_thread_func(void *data)
 		stat_inc_bggc_count(sbi);
 
 #ifdef CONFIG_F2FS_STAT_FS
-#ifdef CONFIG_HUAWEI_F2FS_DSM
-		extern int FG_GC_count;
-		/* report this behavor to DSM */
-		if ((FG_GC_count != 0) && ((sbi->bg_gc % 500) == 1) &&
-				f2fs_dclient &&!dsm_client_ocuppy(f2fs_dclient)) {
-			dsm_client_record(f2fs_dclient,
-				"BG_GC: Size=%lldMB,Free=%lldMB,count=%d,free_sec=%d,reserved_sec=%d,node_secs=%d,dent_secs=%d\n",
-			(le64_to_cpu(sbi->user_block_count) * sbi->blocksize) /1024/1024,
-			(le64_to_cpu(sbi->user_block_count - valid_user_blocks(sbi)) * sbi->blocksize) /1024/1024,
-			sbi->bg_gc, free_sections(sbi), reserved_sections(sbi),
-			get_blocktype_secs(sbi, F2FS_DIRTY_NODES), get_blocktype_secs(sbi, F2FS_DIRTY_DENTS));
-			dsm_client_notify(f2fs_dclient, DSM_F2FS_FG_BG_GC_MSG);
-		}
-#endif
 #endif
 		/* if return value is not zero, no victim was selected */
 		/*lint -save -e747*/

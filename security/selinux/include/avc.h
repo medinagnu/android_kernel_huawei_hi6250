@@ -179,10 +179,5 @@ void avc_disable(void);
 #ifdef CONFIG_SECURITY_SELINUX_AVC_STATS
 DECLARE_PER_CPU(struct avc_cache_stats, avc_cache_stats);
 #endif
-
-#ifdef CONFIG_HUAWEI_SELINUX_DSM
-extern void selinux_dsm_upload(struct audit_buffer *ab, struct common_audit_data *a);
-#endif
-
 #endif /* _SELINUX_AVC_H_ */
 

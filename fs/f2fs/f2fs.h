@@ -24,53 +24,10 @@
 #include <linux/blkdev.h>
 #include <linux/fscrypto.h>
 #include <crypto/hash.h>
-
 #include <linux/reboot.h>
 
-#ifdef CONFIG_HUAWEI_F2FS_DSM
-#define DSM_F2FS_UNLINK_SIGNIF_FILE		(928005000)
-#define DSM_F2FS_NEED_FSCK			(928005001)
-#define DSM_F2FS_FG_BG_GC_MSG			(928005002)
-#endif
-
-#ifdef CONFIG_HUAWEI_F2FS_DSM
-#include <dsm/dsm_pub.h>
-extern struct dsm_client *f2fs_dclient;
-#endif
-
 #ifdef CONFIG_F2FS_CHECK_FS
-
-#ifdef CONFIG_HUAWEI_F2FS_DSM
-#define f2fs_bug_on(sbi, condition) \
-	do { \
-		if (unlikely(condition)) { \
-			if(f2fs_dclient && !dsm_client_ocuppy(f2fs_dclient)) \
-			{ \
-				dsm_client_record(f2fs_dclient,"F2FS bug: %s:%d\n", __func__, __LINE__); \
-				dsm_client_notify(f2fs_dclient, DSM_F2FS_NEED_FSCK); \
-			} \
-		} \
-	BUG_ON(condition); \
-	} while (0)
-#else
 #define f2fs_bug_on(sbi, condition)	BUG_ON(condition)
-#endif
-
-#else
-
-#ifdef CONFIG_HUAWEI_F2FS_DSM
-#define f2fs_bug_on(sbi, condition)					\
-	do {								\
-		if (unlikely(condition)) {				\
-			if(f2fs_dclient && !dsm_client_ocuppy(f2fs_dclient)) \
-			{ \
-				dsm_client_record(f2fs_dclient,"F2FS bug: %s:%d\n", __func__, __LINE__); \
-				dsm_client_notify(f2fs_dclient, DSM_F2FS_NEED_FSCK); \
-			} \
-			WARN_ON(1);					\
-			set_sbi_flag(sbi, SBI_NEED_FSCK);		\
-		}							\
-	} while (0)
 #else
 #define f2fs_bug_on(sbi, condition)					\
 	do {								\
@@ -79,8 +36,6 @@ extern struct dsm_client *f2fs_dclient;
 			set_sbi_flag(sbi, SBI_NEED_FSCK);		\
 		}							\
 	} while (0)
-#endif
-
 #endif
 
 /*

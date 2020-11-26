@@ -431,18 +431,6 @@ static int f2fs_unlink(struct inode *dir, struct dentry *dentry)
 		}
 		f2fs_put_page(ipage, 1);
 
-#ifdef CONFIG_HUAWEI_F2FS_DSM
-		/* report this behavor to DSM */
-		if (f2fs_dclient &&!dsm_client_ocuppy(f2fs_dclient)) {
-			dsm_client_record(f2fs_dclient,
-				"unlink: %s is deleted by PID %d[%s](parent PID %d[%s])\n",
-				dentry->d_name.name,
-				current->group_leader->pid, comm,
-				current->group_leader->parent->pid,
-				current->group_leader->parent->comm);
-			dsm_client_notify(f2fs_dclient, DSM_F2FS_UNLINK_SIGNIF_FILE);
-		}
-#endif
 		pr_warning("F2FS-fs (%s) unlink: %s is deleted by PID %d[%s](parent PID %d[%s])\n",
 				sbi->sb->s_id,
 				dentry->d_name.name,
