@@ -18,7 +18,10 @@ obj-$(CONFIG_PCI)		+= pci/
 obj-$(CONFIG_PARISC)		+= parisc/
 obj-$(CONFIG_RAPIDIO)		+= rapidio/
 obj-y				+= video/
+obj-$(CONFIG_LCDKIT_DRIVER)     += devkit/lcdkit/
+obj-$(CONFIG_HUAWEI_LCD_PANEL)  += huawei_platform/lcd/
 obj-y				+= idle/
+obj-$(CONFIG_HISI_BOOTDEVICE)   += bootdevice/
 
 # IPMI must come before ACPI in order to provide IPMI opregion support
 obj-$(CONFIG_IPMI_HANDLER)	+= char/ipmi/
@@ -54,7 +57,8 @@ obj-y				+= char/
 obj-$(CONFIG_IOMMU_SUPPORT)	+= iommu/
 
 # gpu/ comes after char for AGP vs DRM startup and after iommu
-obj-y				+= gpu/
+obj-y				+= gpu/drm/ gpu/host1x/ gpu/ipu-v3/ gpu/vga/
+obj-$(CONFIG_MALI_MIDGARD)	+= gpu/arm/
 
 obj-$(CONFIG_CONNECTOR)		+= connector/
 
@@ -74,6 +78,7 @@ obj-$(CONFIG_TARGET_CORE)	+= target/
 obj-$(CONFIG_MTD)		+= mtd/
 obj-$(CONFIG_SPI)		+= spi/
 obj-$(CONFIG_SPMI)		+= spmi/
+obj-$(CONFIG_HISI_SPMI)		+= spmi_hisi/
 obj-y				+= hsi/
 obj-y				+= net/
 obj-$(CONFIG_ATM)		+= atm/
@@ -117,9 +122,10 @@ obj-$(CONFIG_EISA)		+= eisa/
 obj-y				+= lguest/
 obj-$(CONFIG_CPU_FREQ)		+= cpufreq/
 obj-$(CONFIG_CPU_IDLE)		+= cpuidle/
-obj-y				+= mmc/
+obj-$(CONFIG_MMC)		+= mmc/
 obj-$(CONFIG_MEMSTICK)		+= memstick/
 obj-y				+= leds/
+obj-$(CONFIG_SWITCH)		+= switch/
 obj-$(CONFIG_INFINIBAND)	+= infiniband/
 obj-$(CONFIG_SGI_SN)		+= sn/
 obj-y				+= firmware/
@@ -163,5 +169,20 @@ obj-$(CONFIG_POWERCAP)		+= powercap/
 obj-$(CONFIG_MCB)		+= mcb/
 obj-$(CONFIG_RAS)		+= ras/
 obj-$(CONFIG_THUNDERBOLT)	+= thunderbolt/
-obj-$(CONFIG_CORESIGHT)		+= hwtracing/coresight/
+obj-$(CONFIG_CORESIGHT)		+= hwtracing/hisi_coresight/
 obj-$(CONFIG_ANDROID)		+= android/
+ifeq ($(BOARD_CHARGER_ENABLE_DRM),true)
+obj-$(CONFIG_IMAGINATION_D5500_DRM_VCODEC)  += vcodec/imagination/D5500_DRM/
+else
+obj-$(CONFIG_IMAGINATION_D5500_VCODEC)  += vcodec/imagination/D5500/
+endif
+obj-$(CONFIG_HISILICON_PLATFORM)+= hisi/
+obj-$(CONFIG_HUAWEI_PLATFORM) 	+= huawei_platform/
+obj-$(CONFIG_HUAWEI_DSM)	+= dsm/
+obj-$(CONFIG_HWTC)	+= hwtc/
+obj-$(CONFIG_CONNECTIVITY_HI110X)     += connectivity/
+obj-$(CONFIG_CONTEXTHUB)	+= contexthub/
+obj-$(CONFIG_HW_GADGET) += hwusb/
+obj-$(CONFIG_HUAWEI_BFM) += hwbfm/
+obj-$(CONFIG_KRETPROBES) += rphone/
+obj-$(CONFIG_HUAWEI_TS_KIT) += devkit/tpkit/

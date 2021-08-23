@@ -784,7 +784,6 @@ static void pcl812_handle_eoc(struct comedi_device *dev,
 	val = pcl812_ai_get_sample(dev, s);
 	comedi_buf_write_samples(s, &val, 1);
 
-	/* Set up next channel. Added by abbotti 2010-01-20, but untested. */
 	next_chan = s->async->cur_chan;
 	if (cmd->chanlist[chan] != cmd->chanlist[next_chan])
 		pcl812_ai_set_chan_range(dev, cmd->chanlist[next_chan], 0);

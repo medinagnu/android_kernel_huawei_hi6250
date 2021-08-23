@@ -34,11 +34,16 @@
 #include <linux/stacktrace.h>
 #include <linux/prefetch.h>
 #include <linux/memcontrol.h>
-
+#ifdef CONFIG_HW_STAT_MM
+#include <huawei_platform/linux/stat_mm.h>
+#endif
+#include <linux/hisi/page_tracker.h>
+#include <linux/hisi/rdr_hisi_ap_hook.h>
 #include <trace/events/kmem.h>
 
 #include "internal.h"
 
+#include <linux/jiffies.h>
 /*
  * Lock order:
  *   1. slab_mutex (Global Mutex)
@@ -459,8 +464,10 @@ static void get_map(struct kmem_cache *s, struct page *page, unsigned long *map)
 /*
  * Debug settings:
  */
-#ifdef CONFIG_SLUB_DEBUG_ON
+#if defined(CONFIG_SLUB_DEBUG_ON)
 static int slub_debug = DEBUG_DEFAULT_FLAGS;
+#elif defined(CONFIG_KASAN)
+static int slub_debug = SLAB_STORE_USER;
 #else
 static int slub_debug;
 #endif
@@ -1424,6 +1431,7 @@ static struct page *new_slab(struct kmem_cache *s, gfp_t flags, int node)
 		goto out;
 
 	order = compound_order(page);
+	page_tracker_set_type(page, TRACK_SLAB, order);
 	inc_slabs_node(s, page_to_nid(page), page->objects);
 	page->slab_cache = s;
 	__SetPageSlab(page);
@@ -1826,6 +1834,12 @@ static void deactivate_slab(struct kmem_cache *s, struct page *page,
 	struct page new;
 	struct page old;
 
+	u64 debug_before;
+	u64 debug_now;
+	unsigned long debug_counters = 0;
+	unsigned long debug_max_cycles= 0;
+	unsigned int debug_dump = 0;
+
 	if (page->freelist) {
 		stat(s, DEACTIVATE_REMOTE_FREES);
 		tail = DEACTIVATE_TO_TAIL;
@@ -1839,9 +1853,26 @@ static void deactivate_slab(struct kmem_cache *s, struct page *page,
 	 * There is no need to take the list->lock because the page
 	 * is still frozen.
 	 */
+	debug_before = get_jiffies_64();
 	while (freelist && (nextfree = get_freepointer(s, freelist))) {
 		void *prior;
 		unsigned long counters;
+		unsigned long debug_i = 0;
+
+		debug_counters++;
+		debug_now = get_jiffies_64();
+
+		if ((debug_dump == 0) && (debug_now > debug_before)
+				&& ((debug_now - debug_before) > HZ*3)){
+			printk("~~~ : name %s obj_size %d\n", s->name, s->object_size);
+			debug_dump = 1;
+		}
+
+		if (debug_dump == 1){
+			printk("~~~ : freelist 0x%p nextfree 0x%p\n", freelist, nextfree);
+			printk("~~~ : counters %lu maxcycles %lu\n", debug_counters,
+						debug_max_cycles);
+		}
 
 		do {
 			prior = page->freelist;
@@ -1850,12 +1881,15 @@ static void deactivate_slab(struct kmem_cache *s, struct page *page,
 			new.counters = counters;
 			new.inuse--;
 			VM_BUG_ON(!new.frozen);
+			debug_i ++;
+
+			if (debug_i > debug_max_cycles)
+				debug_max_cycles = debug_i;
 
 		} while (!__cmpxchg_double_slab(s, page,
 			prior, counters,
 			freelist, new.counters,
 			"drain percpu freelist"));
-
 		freelist = nextfree;
 	}
 
@@ -2531,6 +2565,8 @@ void *kmem_cache_alloc_trace(struct kmem_cache *s, gfp_t gfpflags, size_t size)
 {
 	void *ret = slab_alloc(s, gfpflags, _RET_IP_);
 	trace_kmalloc(_RET_IP_, ret, size, s->size, gfpflags);
+	kmalloc_trace_hook((unsigned char)MEM_ALLOC, _RET_IP_, (unsigned long long)ret,/*lint !e571*/
+                virt_to_phys(ret), (unsigned int)size);
 	kasan_kmalloc(s, ret, size);
 	return ret;
 }
@@ -3032,11 +3068,7 @@ static int calculate_sizes(struct kmem_cache *s, int forced_order)
 		s->flags &= ~__OBJECT_POISON;
 
 
-	/*
-	 * If we are Redzoning then check if there is some space between the
-	 * end of the object and the free pointer. If not then add an
-	 * additional word to have some bytes to store Redzone information.
-	 */
+	
 	if ((flags & SLAB_RED_ZONE) && size == s->object_size)
 		size += sizeof(void *);
 #endif
@@ -3070,13 +3102,7 @@ static int calculate_sizes(struct kmem_cache *s, int forced_order)
 		size += 2 * sizeof(struct track);
 
 	if (flags & SLAB_RED_ZONE)
-		/*
-		 * Add some empty padding so that we can catch
-		 * overwrites from earlier objects rather than let
-		 * tracking information or the free pointer be
-		 * corrupted if a user writes before the start
-		 * of the object.
-		 */
+		
 		size += sizeof(void *);
 #endif
 
@@ -3307,8 +3333,12 @@ void *__kmalloc(size_t size, gfp_t flags)
 	struct kmem_cache *s;
 	void *ret;
 
-	if (unlikely(size > KMALLOC_MAX_CACHE_SIZE))
-		return kmalloc_large(size, flags);
+	if (unlikely(size > KMALLOC_MAX_CACHE_SIZE)) {
+		ret = kmalloc_large(size, flags);
+		if (ret)
+			page_tracker_set_type(virt_to_page(ret), TRACK_LSLAB, get_order(size));
+		return ret;
+	}
 
 	s = kmalloc_slab(size, flags);
 
@@ -3318,8 +3348,15 @@ void *__kmalloc(size_t size, gfp_t flags)
 	ret = slab_alloc(s, flags, _RET_IP_);
 
 	trace_kmalloc(_RET_IP_, ret, size, s->size, flags);
+	kmalloc_trace_hook((unsigned char)MEM_ALLOC, _RET_IP_, (unsigned long long)ret,/*lint !e571*/
+                (unsigned long long)virt_to_phys(ret), (unsigned int)size);
 
 	kasan_kmalloc(s, ret, size);
+
+#ifdef CONFIG_HW_STAT_MM
+	if(ret != NULL)
+		STAT_MM_BUDDY_SLUB_BIG(size);
+#endif
 
 	return ret;
 }
@@ -3412,9 +3449,13 @@ void kfree(const void *x)
 	if (unlikely(!PageSlab(page))) {
 		BUG_ON(!PageCompound(page));
 		kfree_hook(x);
+		kmalloc_trace_hook((unsigned char)MEM_FREE, _RET_IP_, (unsigned long long)x,/*lint !e571*/
+            (unsigned long long)virt_to_phys(x), (unsigned int)(PAGE_SIZE << compound_order(page)));
 		__free_kmem_pages(page, compound_order(page));
 		return;
 	}
+	kmalloc_trace_hook((unsigned char)MEM_FREE, _RET_IP_, (unsigned long long)x,/*lint !e571*/
+            (unsigned long long)virt_to_phys(x), (unsigned int)page->slab_cache->object_size);
 	slab_free(page->slab_cache, page, object, _RET_IP_);
 }
 EXPORT_SYMBOL(kfree);
@@ -3810,8 +3851,12 @@ void *__kmalloc_track_caller(size_t size, gfp_t gfpflags, unsigned long caller)
 	struct kmem_cache *s;
 	void *ret;
 
-	if (unlikely(size > KMALLOC_MAX_CACHE_SIZE))
-		return kmalloc_large(size, gfpflags);
+	if (unlikely(size > KMALLOC_MAX_CACHE_SIZE)) {
+		ret = kmalloc_large(size, gfpflags);
+		if (ret)
+			page_tracker_set_type(virt_to_page(ret), TRACK_LSLAB, get_order(size));
+		return ret;
+	}
 
 	s = kmalloc_slab(size, gfpflags);
 
@@ -3822,6 +3867,8 @@ void *__kmalloc_track_caller(size_t size, gfp_t gfpflags, unsigned long caller)
 
 	/* Honor the call site pointer we received. */
 	trace_kmalloc(caller, ret, size, s->size, gfpflags);
+	kmalloc_trace_hook((unsigned char)MEM_ALLOC, caller, (unsigned long long)ret,
+                (unsigned long long)virt_to_phys(ret), (unsigned int)size);
 
 	return ret;
 }
@@ -4019,10 +4066,7 @@ static int add_location(struct loc_track *t, struct kmem_cache *s,
 	for ( ; ; ) {
 		pos = start + (end - start + 1) / 2;
 
-		/*
-		 * There is nothing at "end". If we end up there
-		 * we need to add something to before end.
-		 */
+		
 		if (pos == end)
 			break;
 

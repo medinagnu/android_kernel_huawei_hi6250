@@ -179,7 +179,12 @@ armpmu_event_set_period(struct perf_event *event,
 	 */
 	if (left > (armpmu->max_period >> 1))
 		left = armpmu->max_period >> 1;
-
+#ifdef CONFIG_HISI_HW_PERF_EVENTS
+	if (left < (s64)armpmu->min_period){
+		left = (s64)armpmu->min_period;
+		local64_set(&hwc->period_left, left);
+	}
+#endif
 	local64_set(&hwc->prev_count, (u64)-left);
 
 	armpmu->write_counter(idx, (u64)(-left) & 0xffffffff);
@@ -576,7 +581,11 @@ __hw_perf_event_init(struct perf_event *event)
 		hwc->last_period    = hwc->sample_period;
 		local64_set(&hwc->period_left, hwc->sample_period);
 	}
-
+#ifdef CONFIG_HISI_HW_PERF_EVENTS
+	if (hwc->sample_period < armpmu->min_period){
+		hwc->sample_period = armpmu->min_period;
+	}
+#endif
 	err = 0;
 	if (event->group_leader != event) {
 		err = validate_group(event);
@@ -704,12 +713,26 @@ enum armv8_pmuv3_perf_types {
 /* PMUv3 HW events mapping. */
 static const unsigned armv8_pmuv3_perf_map[PERF_COUNT_HW_MAX] = {
 	[PERF_COUNT_HW_CPU_CYCLES]		= ARMV8_PMUV3_PERFCTR_CLOCK_CYCLES,
+/*
+* simpleperf test will trigger system reset @ 100% rate, so we need close it:
+* simpleperf record -e instructions -a -o /data/perf.data -c 20
+* So, we will close hw events by default
+*/
+#ifdef CONFIG_HISI_HW_PERF_EVENTS
+	[PERF_COUNT_HW_INSTRUCTIONS]		= HW_OP_UNSUPPORTED,
+	[PERF_COUNT_HW_CACHE_REFERENCES]	= HW_OP_UNSUPPORTED,
+	[PERF_COUNT_HW_CACHE_MISSES]		= HW_OP_UNSUPPORTED,
+	[PERF_COUNT_HW_BRANCH_INSTRUCTIONS]	= HW_OP_UNSUPPORTED,
+	[PERF_COUNT_HW_BRANCH_MISSES]		= HW_OP_UNSUPPORTED,
+	[PERF_COUNT_HW_BUS_CYCLES]		= HW_OP_UNSUPPORTED,
+#else
 	[PERF_COUNT_HW_INSTRUCTIONS]		= ARMV8_PMUV3_PERFCTR_INSTR_EXECUTED,
 	[PERF_COUNT_HW_CACHE_REFERENCES]	= ARMV8_PMUV3_PERFCTR_L1_DCACHE_ACCESS,
 	[PERF_COUNT_HW_CACHE_MISSES]		= ARMV8_PMUV3_PERFCTR_L1_DCACHE_REFILL,
 	[PERF_COUNT_HW_BRANCH_INSTRUCTIONS]	= HW_OP_UNSUPPORTED,
 	[PERF_COUNT_HW_BRANCH_MISSES]		= ARMV8_PMUV3_PERFCTR_PC_BRANCH_MIS_PRED,
 	[PERF_COUNT_HW_BUS_CYCLES]		= HW_OP_UNSUPPORTED,
+#endif
 	[PERF_COUNT_HW_STALLED_CYCLES_FRONTEND]	= HW_OP_UNSUPPORTED,
 	[PERF_COUNT_HW_STALLED_CYCLES_BACKEND]	= HW_OP_UNSUPPORTED,
 };
@@ -1262,6 +1285,9 @@ static struct arm_pmu armv8pmu = {
 	.stop			= armv8pmu_stop,
 	.reset			= armv8pmu_reset,
 	.max_period		= (1LLU << 32) - 1,
+#ifdef CONFIG_HISI_HW_PERF_EVENTS
+	.min_period		= 0xfffff,
+#endif
 };
 
 static u32 __init armv8pmu_read_num_pmnc_events(void)

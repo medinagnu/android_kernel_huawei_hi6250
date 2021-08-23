@@ -367,15 +367,7 @@ static void img_hash_dma_task(unsigned long d)
 	addr = sg_virt(ctx->sg);
 	nbytes = ctx->sg->length - ctx->offset;
 
-	/*
-	 * The hash accelerator does not support a data valid mask. This means
-	 * that if each dma (i.e. per page) is not a multiple of 4 bytes, the
-	 * padding bytes in the last word written by that dma would erroneously
-	 * be included in the hash. To avoid this we round down the transfer,
-	 * and add the excess to the start of the next dma. It does not matter
-	 * that the final dma may not be a multiple of 4 bytes as the hashing
-	 * block is programmed to accept the correct number of bytes.
-	 */
+	
 
 	bleft = nbytes % 4;
 	wsend = (nbytes / 4);

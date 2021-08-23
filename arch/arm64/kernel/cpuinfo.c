@@ -114,6 +114,7 @@ static void cpuinfo_sanity_check(struct cpuinfo_arm64 *cur)
 	unsigned int cpu = smp_processor_id();
 	struct cpuinfo_arm64 *boot = &boot_cpu_data;
 	unsigned int diff = 0;
+	unsigned int midr = read_cpuid_id();
 
 	/*
 	 * The kernel can handle differing I-cache policies, but otherwise
@@ -154,7 +155,11 @@ static void cpuinfo_sanity_check(struct cpuinfo_arm64 *cur)
 	 * Linux should not care about secure memory.
 	 * ID_AA64MMFR1 is currently RES0.
 	 */
-	diff |= CHECK_MASK(id_aa64mmfr0, 0xffffffffffff0ff0, boot, cur, cpu);
+	if (MIDR_PARTNUM(midr) == ARM_CPU_PART_CORTEX_ARTEMIS)
+		diff |= CHECK_MASK(id_aa64mmfr0, 0xffffffffff0f0ff0, boot, cur, cpu);
+	else
+		diff |= CHECK_MASK(id_aa64mmfr0, 0xffffffffffff0ff0, boot, cur, cpu);
+
 	diff |= CHECK(id_aa64mmfr1, boot, cur, cpu);
 
 	/*

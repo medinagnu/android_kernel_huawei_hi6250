@@ -1,17 +1,4 @@
-/*
- * CAN driver for PEAK System PCAN-USB FD / PCAN-USB Pro FD adapter
- *
- * Copyright (C) 2013-2014 Stephane Grosjean <s.grosjean@peak-system.com>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published
- * by the Free Software Foundation; version 2 of the License.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- */
+
 #include <linux/netdevice.h>
 #include <linux/usb.h>
 #include <linux/module.h>
@@ -760,8 +747,7 @@ static int pcan_usb_fd_encode_msg(struct peak_usb_device *dev,
 	tx_msg->channel_dlc = PUCAN_MSG_CHANNEL_DLC(dev->ctrl_idx, can_dlc);
 	memcpy(tx_msg->d, cfd->data, cfd->len);
 
-	/* add null size message to tag the end (messages are 32-bits aligned)
-	 */
+	
 	tx_msg = (struct pucan_tx_msg *)(obuf + tx_msg_size);
 
 	tx_msg->size = 0;

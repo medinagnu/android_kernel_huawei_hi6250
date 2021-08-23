@@ -22,6 +22,7 @@
 #include <linux/smp.h>
 #include <linux/rcupdate.h>
 #include <linux/percpu-refcount.h>
+#include <linux/wbt.h>
 
 #include <asm/scatterlist.h>
 
@@ -37,6 +38,7 @@ struct sg_io_hdr;
 struct bsg_job;
 struct blkcg_gq;
 struct blk_flush_queue;
+struct rq_wb;
 
 #define BLKDEV_MIN_RQ	4
 #define BLKDEV_MAX_RQ	128	/* Default maximum */
@@ -91,6 +93,46 @@ enum rq_cmd_type_bits {
 
 #define BLK_MAX_CDB	16
 
+enum mq_process_enum {
+	MQ_PROCESS_INIT_RQ = 0,
+	MQ_PROCESS_ALLOCATED_RQ,
+	MQ_PROCESS_FLUSH_INIT,
+	MQ_PROCESS_INSERT_RQ,
+	MQ_PROCESS_MAKE_MQ_RQ,
+	MQ_PROCESS_RQ_DISPATCH_SYNC_WRITE_DONE,
+	MQ_PROCESS_RQ_DISPATCH_ASYNC_WRITE_DONE,
+	MQ_PROCESS_RQ_DISPATCH_WRITE_BYPASS,
+	MQ_PROCESS_SYNC_DISPATCH,
+	MQ_PROCESS_SYNC_DISPATCH_FAIL,
+	MQ_PROCESS_SYNC_DISPATCH_ERR_END,
+	MQ_PROCESS_PLUG_FLUSH_DISPATCH,
+	MQ_PROCESS_PLUG_FLUSH_DISPATCH_FAIL,
+	MQ_PROCESS_PLUG_FLUSH_DISPATCH_ERR_END,
+	MQ_PROCESS_RQ_NOT_MERGE_IN_HW_QUEUE,
+	MQ_PROCESS_RUN_HW_QUEUE,
+	MQ_PROCESS_FLUSH_SKIP,
+	MQ_PROCESS_ASYNC_DISPATCH,
+	MQ_PROCESS_ASYNC_DISPATCH_BUSY_RETURN,
+	MQ_PROCESS_ASYNC_DISPATCH_ERR_END,
+	MQ_PROCESS_ASYNC_DISPATCH_REIN_HW_QUEUE,
+	MQ_PROCESS_SCSI_STATE_CHECK_FAIL,
+	MQ_PROCESS_SCSI_GENDEV_NOT_READY,
+	MQ_PROCESS_SCSI_DEV_QUEUE_NOT_READY,
+	MQ_PROCESS_SCSI_TARGET_QUEUE_NOT_READY,
+	MQ_PROCESS_SCSI_HOST_QUEUE_NOT_READY,
+	MQ_PROCESS_SCSI_MQ_PREP_FAIL,
+	MQ_PROCESS_SCSI_DISPATCH_FAIL,
+	MQ_PROCESS_INTR_BACK,
+	MQ_PROCESS_SCSI_UPDATE_RQ_1,
+	MQ_PROCESS_SCSI_UPDATE_RQ_ACTFAIL,
+	MQ_PROCESS_SCSI_UPDATE_RQ_ACTREPREP,
+	MQ_PROCESS_SCSI_UPDATE_RQ_ACTRETRY,
+	MQ_PROCESS_SCSI_UPDATE_RQ_ACTDELAYEDRETRY,
+	MQ_PROCESS_UPDATE_RQ,
+	MQ_PROCESS_FREE_RQ,
+	MQ_PROCESS_NUM,
+};
+
 /*
  * Try to put the fields that are referenced together in the same cacheline.
  *
@@ -106,6 +148,7 @@ struct request {
 
 	struct request_queue *q;
 	struct blk_mq_ctx *mq_ctx;
+	struct blk_mq_ctx *mq_ctx_dispatch;
 
 	u64 cmd_flags;
 	enum rq_cmd_type_bits cmd_type;
@@ -113,12 +156,35 @@ struct request {
 
 	int cpu;
 
+	unsigned char req_iosche_bypass;
+
+#ifdef CONFIG_HISI_BLK_MQ
+#ifdef CONFIG_HISI_MQ_DEBUG
+	int mq_count_type;
+	int mq_count_num;
+	enum mq_process_enum mq_process_record[MQ_PROCESS_NUM];
+	unsigned char mq_process_record_count;
+	unsigned char mq_process_runqueue_index;
+#endif
+	unsigned long rq_start_jiffies;
+#endif /* CONFIG_HISI_BLK_MQ */
+#ifdef CONFIG_HISI_IO_LATENCY_TRACE
+	unsigned long req_stage_jiffies[REQ_PROC_STAGE_MAX];
+	unsigned char from_submit_bio_flag;
+	struct task_struct* dispatch_task;
+#endif
 	/* the following two fields are internal, NEVER access directly */
 	unsigned int __data_len;	/* total data len */
 	sector_t __sector;		/* sector cursor */
 
 	struct bio *bio;
 	struct bio *biotail;
+
+#ifdef CONFIG_HISI_BLK_INLINE_CRYPTO
+	/* only for inline crypto */
+	void	*ci_key;
+	int ci_key_len;
+#endif
 
 	/*
 	 * The hash is used inside the scheduler, and killed once the
@@ -164,6 +230,7 @@ struct request {
 	struct gendisk *rq_disk;
 	struct hd_struct *part;
 	unsigned long start_time;
+	struct wb_issue_stat wb_stat;
 #ifdef CONFIG_BLK_CGROUP
 	struct request_list *rl;		/* rl this rq is alloced from */
 	unsigned long long start_time_ns;
@@ -309,6 +376,10 @@ struct queue_limits {
 	unsigned char		raid_partial_stripes_expensive;
 };
 
+#ifdef CONFIG_BLK_MQ_REFCOUNT
+#include <linux/blk-mq-ref.h>
+#endif
+
 struct request_queue {
 	/*
 	 * Together with queue_head for cacheline sharing
@@ -319,6 +390,8 @@ struct request_queue {
 	int			nr_rqs[2];	/* # allocated [a]sync rqs */
 	int			nr_rqs_elvpriv;	/* # allocated rqs w/ elvpriv */
 
+	struct rq_wb		*rq_wb;
+
 	/*
 	 * If blkcg is not used, @q->root_rl serves all requests.  If blkcg
 	 * is used, root blkg allocates from @q->root_rl and all other
@@ -328,6 +401,7 @@ struct request_queue {
 	struct request_list	root_rl;
 
 	request_fn_proc		*request_fn;
+	request_fn_proc		*urgent_request_fn;
 	make_request_fn		*make_request_fn;
 	prep_rq_fn		*prep_rq_fn;
 	unprep_rq_fn		*unprep_rq_fn;
@@ -345,6 +419,8 @@ struct request_queue {
 	struct blk_mq_ctx __percpu	*queue_ctx;
 	unsigned int		nr_queues;
 
+	unsigned int		queue_depth;
+
 	/* hw dispatch queues */
 	struct blk_mq_hw_ctx	**queue_hw_ctx;
 	unsigned int		nr_hw_queues;
@@ -361,6 +437,40 @@ struct request_queue {
 	struct delayed_work	delay_work;
 
 	struct backing_dev_info	backing_dev_info;
+
+#ifdef CONFIG_HISI_BLK_MQ
+	/*
+	 * Record if there is any write IO after flush
+	 */
+	atomic_t wio_after_flush_fua;
+
+	/*
+	 * hisi blk-mq quirks
+	 */
+	unsigned long hisi_blk_mq_quirk_flags;
+	struct gendisk *request_queue_disk;
+	struct delayed_work flush_work;
+	atomic_t do_delay_flush;
+	atomic_t flush_work_execute;
+	atomic_t flush_work_trigger;
+	atomic_t flush_from_flush_work;
+
+#ifdef CONFIG_HISI_MQ_DISPATCH_DECISION
+	int sync_write_io_limit;
+	int async_write_io_limit;
+	int nr_sync_write_dispatch;
+	int nr_async_write_dispatch;
+	
+	spinlock_t statistics_update_lock;
+	
+#ifdef CONFIG_HISI_MQ_DEBUG
+	struct request *mq_sync_dispatch_rq[32];
+	unsigned long mq_sync_dispatch_rq_map;
+	struct request *mq_async_dispatch_rq[32];
+	unsigned long mq_async_dispatch_rq_map;
+#endif
+#endif
+#endif /* CONFIG_HISI_BLK_MQ */
 
 	/*
 	 * The queue owner gets to use this for whatever they like.
@@ -426,6 +536,11 @@ struct request_queue {
 
 	unsigned int		nr_sorted;
 	unsigned int		in_flight[2];
+
+#ifdef CONFIG_WBT
+	struct blk_rq_stat	rq_stats[4];
+#endif
+
 	/*
 	 * Number of active block driver functions for which blk_drain_queue()
 	 * must wait. Must be incremented around functions that unlock the
@@ -445,6 +560,8 @@ struct request_queue {
 #endif
 
 	struct queue_limits	limits;
+	bool			notified_urgent;
+	bool			dispatched_urgent;
 
 	/*
 	 * sg stuff
@@ -458,8 +575,6 @@ struct request_queue {
 	/*
 	 * for flush operations
 	 */
-	unsigned int		flush_flags;
-	unsigned int		flush_not_queueable:1;
 	struct blk_flush_queue	*fq;
 
 	struct list_head	requeue_list;
@@ -483,12 +598,46 @@ struct request_queue {
 #endif
 	struct rcu_head		rcu_head;
 	wait_queue_head_t	mq_freeze_wq;
+
+#ifdef CONFIG_HISI_BLK_INLINE_CRYPTO
+	unsigned int crypto_flag;
+#endif
+
+#ifndef CONFIG_BLK_MQ_REFCOUNT
 	struct percpu_ref	mq_usage_counter;
+#else
+	struct blk_mq_refcount	mq_usage_counter;
+#endif
 	struct list_head	all_q_node;
 
 	struct blk_mq_tag_set	*tag_set;
 	struct list_head	tag_set_list;
+
+	unsigned long		bw_timestamp;
+	unsigned long		last_ticks;
+	sector_t		last_sects[2];
+	unsigned long		last_ios[2];
+	sector_t		disk_bw;
+	unsigned long		disk_iops;
+
 };
+
+#ifdef CONFIG_HISI_BLK_INLINE_CRYPTO
+#define BLK_CRYPTO_SUPPORT		(1U << 1)
+static inline void blk_queue_set_crypto_flag(struct request_queue *q)
+{
+	q->crypto_flag |= BLK_CRYPTO_SUPPORT;
+}
+static inline void blk_queue_clr_crypto_flag(struct request_queue *q)
+{
+	q->crypto_flag &= ~BLK_CRYPTO_SUPPORT;
+}
+
+static inline int is_blk_queue_support_crypto(struct request_queue *q)
+{
+	return (q->crypto_flag & BLK_CRYPTO_SUPPORT);
+}
+#endif
 
 #define QUEUE_FLAG_QUEUED	1	/* uses generic tag queueing */
 #define QUEUE_FLAG_STOPPED	2	/* queue is stopped */
@@ -513,6 +662,9 @@ struct request_queue {
 #define QUEUE_FLAG_INIT_DONE   20	/* queue is initialized */
 #define QUEUE_FLAG_NO_SG_MERGE 21	/* don't attempt to merge SG segments*/
 #define QUEUE_FLAG_SG_GAPS     22	/* queue doesn't support SG gaps */
+#define QUEUE_FLAG_WC	       23       /* Write back caching */
+#define QUEUE_FLAG_FUA	       24       /* device supports FUA writes */
+#define QUEUE_FLAG_FLUSH_NQ    25      /* flush not queueuable */
 
 #define QUEUE_FLAG_DEFAULT	((1 << QUEUE_FLAG_IO_STAT) |		\
 				 (1 << QUEUE_FLAG_STACKABLE)	|	\
@@ -705,6 +857,19 @@ static inline bool blk_write_same_mergeable(struct bio *a, struct bio *b)
 	return false;
 }
 
+static inline unsigned int blk_queue_depth(struct request_queue *q)
+{
+	if (q->queue_depth)
+		return q->queue_depth;
+
+	return q->nr_requests;
+}
+#ifdef CONFIG_HISI_IO_LATENCY_TRACE
+void req_latency_check(struct request *req,enum req_process_stage_enum req_stage);
+#else
+static inline void req_latency_check(struct request *req,enum req_process_stage_enum req_stage){}
+#endif
+
 /*
  * q->prep_rq_fn return values
  */
@@ -800,6 +965,8 @@ extern struct request *blk_make_request(struct request_queue *, struct bio *,
 					gfp_t);
 extern void blk_rq_set_block_pc(struct request *);
 extern void blk_requeue_request(struct request_queue *, struct request *);
+extern int blk_reinsert_request(struct request_queue *q, struct request *rq);
+extern bool blk_reinsert_req_sup(struct request_queue *q);
 extern void blk_add_request_payload(struct request *rq, struct page *page,
 		unsigned int len);
 extern int blk_rq_check_limits(struct request_queue *q, struct request *rq);
@@ -897,7 +1064,7 @@ static inline unsigned int blk_rq_sectors(const struct request *rq)
 
 static inline unsigned int blk_rq_cur_sectors(const struct request *rq)
 {
-	return blk_rq_cur_bytes(rq) >> 9;
+	return (unsigned int)blk_rq_cur_bytes(rq) >> 9;
 }
 
 static inline unsigned int blk_queue_get_max_sectors(struct request_queue *q,
@@ -998,6 +1165,7 @@ extern struct request_queue *blk_init_queue_node(request_fn_proc *rfn,
 extern struct request_queue *blk_init_queue(request_fn_proc *, spinlock_t *);
 extern struct request_queue *blk_init_allocated_queue(struct request_queue *,
 						      request_fn_proc *, spinlock_t *);
+extern void blk_urgent_request(struct request_queue *q, request_fn_proc *fn);
 extern void blk_cleanup_queue(struct request_queue *);
 extern void blk_queue_make_request(struct request_queue *, make_request_fn *);
 extern void blk_queue_bounce_limit(struct request_queue *, u64);
@@ -1018,6 +1186,7 @@ extern void blk_limits_io_min(struct queue_limits *limits, unsigned int min);
 extern void blk_queue_io_min(struct request_queue *q, unsigned int min);
 extern void blk_limits_io_opt(struct queue_limits *limits, unsigned int opt);
 extern void blk_queue_io_opt(struct request_queue *q, unsigned int opt);
+extern void blk_set_queue_depth(struct request_queue *q, unsigned int depth);
 extern void blk_set_default_limits(struct queue_limits *lim);
 extern void blk_set_stacking_limits(struct queue_limits *lim);
 extern int blk_stack_limits(struct queue_limits *t, struct queue_limits *b,
@@ -1042,8 +1211,8 @@ extern void blk_queue_update_dma_alignment(struct request_queue *, int);
 extern void blk_queue_softirq_done(struct request_queue *, softirq_done_fn *);
 extern void blk_queue_rq_timed_out(struct request_queue *, rq_timed_out_fn *);
 extern void blk_queue_rq_timeout(struct request_queue *, unsigned int);
-extern void blk_queue_flush(struct request_queue *q, unsigned int flush);
 extern void blk_queue_flush_queueable(struct request_queue *q, bool queueable);
+extern void blk_queue_write_cache(struct request_queue *q, bool enabled, bool fua);
 extern struct backing_dev_info *blk_get_backing_dev_info(struct block_device *bdev);
 
 extern int blk_rq_map_sg(struct request_queue *, struct request *, struct scatterlist *);
@@ -1054,6 +1223,7 @@ bool __must_check blk_get_queue(struct request_queue *);
 struct request_queue *blk_alloc_queue(gfp_t);
 struct request_queue *blk_alloc_queue_node(gfp_t, int);
 extern void blk_put_queue(struct request_queue *);
+extern void blk_set_queue_dying(struct request_queue *);
 
 /*
  * block layer runtime pm functions
@@ -1223,7 +1393,7 @@ static inline unsigned int queue_max_segment_size(struct request_queue *q)
 
 static inline unsigned short queue_logical_block_size(struct request_queue *q)
 {
-	int retval = 512;
+	unsigned short retval = 512;
 
 	if (q && q->limits.logical_block_size)
 		retval = q->limits.logical_block_size;
@@ -1389,7 +1559,7 @@ static inline unsigned int block_size(struct block_device *bdev)
 
 static inline bool queue_flush_queueable(struct request_queue *q)
 {
-	return !q->flush_not_queueable;
+	return !test_bit(QUEUE_FLAG_FLUSH_NQ, &q->queue_flags);
 }
 
 typedef struct {struct page *v;} Sector;
@@ -1405,6 +1575,7 @@ struct work_struct;
 int kblockd_schedule_work(struct work_struct *work);
 int kblockd_schedule_delayed_work(struct delayed_work *dwork, unsigned long delay);
 int kblockd_schedule_delayed_work_on(int cpu, struct delayed_work *dwork, unsigned long delay);
+int kblockd_schedule_delayed_work_cancel(struct delayed_work *dwork);
 
 #ifdef CONFIG_BLK_CGROUP
 /*

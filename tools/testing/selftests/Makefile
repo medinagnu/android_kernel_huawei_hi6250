@@ -16,6 +16,7 @@ TARGETS += size
 TARGETS += sysctl
 TARGETS += timers
 TARGETS += user
+TARGETS += jumplabel
 TARGETS += vm
 TARGETS += x86
 #Please keep the TARGETS list alphabetically sorted

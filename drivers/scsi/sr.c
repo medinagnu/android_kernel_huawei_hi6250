@@ -144,9 +144,6 @@ static int sr_runtime_suspend(struct device *dev)
 {
 	struct scsi_cd *cd = dev_get_drvdata(dev);
 
-	if (!cd)	/* E.g.: runtime suspend following sr_remove() */
-		return 0;
-
 	if (cd->media_present)
 		return -EBUSY;
 	else
@@ -465,9 +462,7 @@ static int sr_init_command(struct scsi_cmnd *SCpnt)
 		}
 	}
 
-	/*
-	 * request doesn't start on hw block boundary, add scatter pads
-	 */
+	
 	if (((unsigned int)blk_rq_pos(rq) % (s_size >> 9)) ||
 	    (scsi_bufflen(SCpnt) % s_size)) {
 		scmd_printk(KERN_NOTICE, SCpnt, "unaligned transfer\n");
@@ -988,7 +983,6 @@ static int sr_remove(struct device *dev)
 	scsi_autopm_get_device(cd->device);
 
 	del_gendisk(cd->disk);
-	dev_set_drvdata(dev, NULL);
 
 	mutex_lock(&sr_ref_mutex);
 	kref_put(&cd->kref, sr_kref_release);

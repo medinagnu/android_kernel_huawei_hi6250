@@ -116,6 +116,7 @@
 #include	<linux/kmemcheck.h>
 #include	<linux/memory.h>
 #include	<linux/prefetch.h>
+#include	<linux/hisi/page_tracker.h>
 
 #include	<net/sock.h>
 
@@ -1624,6 +1625,7 @@ static struct page *kmem_getpages(struct kmem_cache *cachep, gfp_t flags,
 		else
 			kmemcheck_mark_unallocated_pages(page, nr_pages);
 	}
+	page_tracker_set_type(page, TRACK_SLAB, cachep->gfporder);
 
 	return page;
 }

@@ -37,6 +37,7 @@
 #include <linux/uio.h>
 #include <linux/atomic.h>
 #include <linux/prefetch.h>
+#include <linux/fscrypto.h>
 
 /*
  * How many user pages to map in one call to get_user_pages().  This determines
@@ -386,6 +387,17 @@ static inline void dio_bio_submit(struct dio *dio, struct dio_submit *sdio)
 {
 	struct bio *bio = sdio->bio;
 	unsigned long flags;
+#ifdef CONFIG_FS_ENCRYPTION
+	struct inode *inode = dio->inode;
+
+	if (fscrypt_has_encryption_key(inode) && S_ISREG(inode->i_mode)) {
+		bio->ci_key = fscrypt_ci_key(inode);
+		bio->ci_key_len = fscrypt_ci_key_len(inode);
+		/*lint -save -e704*/
+		bio->index = sdio->logical_offset_in_bio >> sdio->blkbits;
+		/*lint -restore*/
+	}
+#endif
 
 	bio->bi_private = dio;
 

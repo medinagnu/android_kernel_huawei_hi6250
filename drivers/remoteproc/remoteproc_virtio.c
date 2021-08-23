@@ -142,6 +142,8 @@ static void rproc_virtio_del_vqs(struct virtio_device *vdev)
 	rproc_shutdown(rproc);
 
 	__rproc_virtio_del_vqs(vdev);
+
+	vdev->config->reset(vdev);
 }
 
 static int rproc_virtio_find_vqs(struct virtio_device *vdev, unsigned nvqs,

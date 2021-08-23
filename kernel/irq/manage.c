@@ -1105,7 +1105,6 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 		    (new->flags & IRQF_PERCPU))
 			goto mismatch;
 
-		/* add new interrupt at end of irq queue */
 		do {
 			/*
 			 * Or all existing action->thread_mask bits,

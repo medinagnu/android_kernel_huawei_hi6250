@@ -17,6 +17,7 @@
 #include <linux/sysctl.h>
 #include <linux/utsname.h>
 #include <trace/events/sched.h>
+#include <linux/sched.h>
 
 /*
  * The number of tasks checked:
@@ -108,6 +109,9 @@ static void check_hung_task(struct task_struct *t, unsigned long timeout)
 	 * Ok, the task did not get scheduled for more than 2 minutes,
 	 * complain:
 	 */
+#ifdef CONFIG_HUAWEI_PRINTK_CTRL
+	printk_level_setup(LOGLEVEL_DEBUG);
+#endif
 	pr_err("INFO: task %s:%d blocked for more than %ld seconds.\n",
 		t->comm, t->pid, timeout);
 	pr_err("      %s %s %.*s\n",
@@ -121,10 +125,14 @@ static void check_hung_task(struct task_struct *t, unsigned long timeout)
 
 	touch_nmi_watchdog();
 
+	show_state_filter(TASK_UNINTERRUPTIBLE);
 	if (sysctl_hung_task_panic) {
 		trigger_all_cpu_backtrace();
 		panic("hung_task: blocked tasks");
 	}
+#ifdef CONFIG_HUAWEI_PRINTK_CTRL
+	printk_level_setup(sysctl_printk_level);
+#endif
 }
 
 /*

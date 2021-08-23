@@ -79,6 +79,8 @@
 
 struct kmem_cache *skbuff_head_cache __read_mostly;
 static struct kmem_cache *skbuff_fclone_cache __read_mostly;
+int sysctl_max_skb_frags __read_mostly = MAX_SKB_FRAGS;
+EXPORT_SYMBOL(sysctl_max_skb_frags);
 
 /**
  *	skb_panic - private function for out-of-line support
@@ -132,6 +134,7 @@ static void *__kmalloc_reserve(size_t size, gfp_t flags, int node,
 	 * Try a regular allocation, when that fails and we're not entitled
 	 * to the reserves, fail.
 	 */
+	flags |= __GFP_DMA;
 	obj = kmalloc_node_track_caller(size,
 					flags | __GFP_NOMEMALLOC | __GFP_NOWARN,
 					node);
@@ -161,7 +164,7 @@ struct sk_buff *__alloc_skb_head(gfp_t gfp_mask, int node)
 
 	/* Get the HEAD */
 	skb = kmem_cache_alloc_node(skbuff_head_cache,
-				    gfp_mask & ~__GFP_DMA, node);
+				    gfp_mask | __GFP_DMA, node);
 	if (!skb)
 		goto out;
 
@@ -213,7 +216,7 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 		gfp_mask |= __GFP_MEMALLOC;
 
 	/* Get the HEAD */
-	skb = kmem_cache_alloc_node(cache, gfp_mask & ~__GFP_DMA, node);
+	skb = kmem_cache_alloc_node(cache, gfp_mask | __GFP_DMA, node);
 	if (!skb)
 		goto out;
 	prefetchw(skb);
@@ -304,7 +307,7 @@ struct sk_buff *__build_skb(void *data, unsigned int frag_size)
 	struct sk_buff *skb;
 	unsigned int size = frag_size ? : ksize(data);
 
-	skb = kmem_cache_alloc(skbuff_head_cache, GFP_ATOMIC);
+	skb = kmem_cache_alloc(skbuff_head_cache, GFP_ATOMIC | __GFP_DMA);
 	if (!skb)
 		return NULL;
 
@@ -362,11 +365,13 @@ static struct page *__page_frag_refill(struct netdev_alloc_cache *nc,
 {
 	const unsigned int order = NETDEV_FRAG_PAGE_MAX_ORDER;
 	struct page *page = NULL;
-	gfp_t gfp = gfp_mask;
+	gfp_t gfp;
+
+	gfp = gfp_mask | __GFP_DMA;
 
 	if (order) {
 		gfp_mask |= __GFP_COMP | __GFP_NOWARN | __GFP_NORETRY |
-			    __GFP_NOMEMALLOC;
+			    __GFP_NOMEMALLOC | __GFP_DMA;
 		page = alloc_pages_node(NUMA_NO_NODE, gfp_mask, order);
 		nc->frag.size = PAGE_SIZE << (page ? order : 0);
 	}
@@ -999,7 +1004,7 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
 		if (skb_pfmemalloc(skb))
 			gfp_mask |= __GFP_MEMALLOC;
 
-		n = kmem_cache_alloc(skbuff_head_cache, gfp_mask);
+		n = kmem_cache_alloc(skbuff_head_cache, gfp_mask | __GFP_DMA);
 		if (!n)
 			return NULL;
 
@@ -1365,18 +1370,7 @@ free_skb:
 }
 EXPORT_SYMBOL(skb_pad);
 
-/**
- *	pskb_put - add data to the tail of a potentially fragmented buffer
- *	@skb: start of the buffer to use
- *	@tail: tail fragment of the buffer to use
- *	@len: amount of data to add
- *
- *	This function extends the used data area of the potentially
- *	fragmented buffer. @tail must be the last fragment of @skb -- or
- *	@skb itself. If this would exceed the total buffer size the kernel
- *	will panic. A pointer to the first byte of the extra data is
- *	returned.
- */
+
 
 unsigned char *pskb_put(struct sk_buff *skb, struct sk_buff *tail, int len)
 {
@@ -1409,15 +1403,7 @@ unsigned char *skb_put(struct sk_buff *skb, unsigned int len)
 }
 EXPORT_SYMBOL(skb_put);
 
-/**
- *	skb_push - add data to the start of a buffer
- *	@skb: buffer to use
- *	@len: amount of data to add
- *
- *	This function extends the used data area of the buffer at the buffer
- *	start. If this would exceed the total buffer headroom the kernel will
- *	panic. A pointer to the first byte of the extra data is returned.
- */
+
 unsigned char *skb_push(struct sk_buff *skb, unsigned int len)
 {
 	skb->data -= len;
@@ -1444,15 +1430,7 @@ unsigned char *skb_pull(struct sk_buff *skb, unsigned int len)
 }
 EXPORT_SYMBOL(skb_pull);
 
-/**
- *	skb_trim - remove end from a buffer
- *	@skb: buffer to alter
- *	@len: new length
- *
- *	Cut the length of a buffer down by removing data from the tail. If
- *	the buffer is already under the length specified it is not modified.
- *	The skb must be linear.
- */
+
 void skb_trim(struct sk_buff *skb, unsigned int len)
 {
 	if (skb->len > len)
@@ -3336,12 +3314,12 @@ void __init skb_init(void)
 	skbuff_head_cache = kmem_cache_create("skbuff_head_cache",
 					      sizeof(struct sk_buff),
 					      0,
-					      SLAB_HWCACHE_ALIGN|SLAB_PANIC,
+					      SLAB_HWCACHE_ALIGN|SLAB_PANIC|SLAB_CACHE_DMA,
 					      NULL);
 	skbuff_fclone_cache = kmem_cache_create("skbuff_fclone_cache",
 						sizeof(struct sk_buff_fclones),
 						0,
-						SLAB_HWCACHE_ALIGN|SLAB_PANIC,
+						SLAB_HWCACHE_ALIGN|SLAB_PANIC|SLAB_CACHE_DMA,
 						NULL);
 }
 
@@ -3451,23 +3429,7 @@ int skb_to_sgvec(struct sk_buff *skb, struct scatterlist *sg, int offset, int le
 }
 EXPORT_SYMBOL_GPL(skb_to_sgvec);
 
-/**
- *	skb_cow_data - Check that a socket buffer's data buffers are writable
- *	@skb: The socket buffer to check.
- *	@tailbits: Amount of trailing space to be added
- *	@trailer: Returned pointer to the skb where the @tailbits space begins
- *
- *	Make sure that the data buffers attached to a socket buffer are
- *	writable. If they are not, private copies are made of the data buffers
- *	and the socket buffer is set to use these instead.
- *
- *	If @tailbits is given, make sure that there is space to write @tailbits
- *	bytes of data beyond current end of socket buffer.  @trailer will be
- *	set to point to the skb in which this space begins.
- *
- *	The number of scatterlist elements required to completely map the
- *	COW'd and extended socket buffer will be returned.
- */
+
 int skb_cow_data(struct sk_buff *skb, int tailbits, struct sk_buff **trailer)
 {
 	int copyflag;

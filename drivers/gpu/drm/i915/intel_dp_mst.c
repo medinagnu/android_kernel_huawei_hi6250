@@ -439,9 +439,9 @@ static struct drm_connector *intel_dp_add_mst_connector(struct drm_dp_mst_topolo
 
 	drm_mode_connector_set_path_property(connector, pathprop);
 	drm_reinit_primary_mode_group(dev);
-	drm_modeset_lock_all(dev);
+	mutex_lock(&dev->mode_config.mutex);
 	intel_connector_add_to_fbdev(intel_connector);
-	drm_modeset_unlock_all(dev);
+	mutex_unlock(&dev->mode_config.mutex);
 	drm_connector_register(&intel_connector->base);
 	return connector;
 }
@@ -452,16 +452,16 @@ static void intel_dp_destroy_mst_connector(struct drm_dp_mst_topology_mgr *mgr,
 	struct intel_connector *intel_connector = to_intel_connector(connector);
 	struct drm_device *dev = connector->dev;
 	/* need to nuke the connector */
-	drm_modeset_lock_all(dev);
+	mutex_lock(&dev->mode_config.mutex);
 	intel_connector_dpms(connector, DRM_MODE_DPMS_OFF);
-	drm_modeset_unlock_all(dev);
+	mutex_unlock(&dev->mode_config.mutex);
 
 	intel_connector->unregister(intel_connector);
 
-	drm_modeset_lock_all(dev);
+	mutex_lock(&dev->mode_config.mutex);
 	intel_connector_remove_from_fbdev(intel_connector);
 	drm_connector_cleanup(connector);
-	drm_modeset_unlock_all(dev);
+	mutex_unlock(&dev->mode_config.mutex);
 
 	drm_reinit_primary_mode_group(dev);
 

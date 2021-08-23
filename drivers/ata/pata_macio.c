@@ -560,7 +560,6 @@ static void pata_macio_qc_prep(struct ata_queued_cmd *qc)
 	table->command = cpu_to_le16(write ? OUTPUT_LAST: INPUT_LAST);
 	table++;
 
-	/* Add the stop command to the end of the list */
 	memset(table, 0, sizeof(struct dbdma_cmd));
 	table->command = cpu_to_le16(DBDMA_STOP);
 

@@ -1,9 +1,4 @@
-/* Copyright (c) 2011-2014 PLUMgrid, http://plumgrid.com
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of version 2 of the GNU General Public
- * License as published by the Free Software Foundation.
- */
+
 #ifndef _UAPI__LINUX_BPF_H__
 #define _UAPI__LINUX_BPF_H__
 
@@ -213,9 +208,7 @@ enum bpf_func_id {
 	__BPF_FUNC_MAX_ID,
 };
 
-/* user accessible mirror of in-kernel sk_buff.
- * new fields can only be added to the end of this structure
- */
+
 struct __sk_buff {
 	__u32 len;
 	__u32 pkt_type;

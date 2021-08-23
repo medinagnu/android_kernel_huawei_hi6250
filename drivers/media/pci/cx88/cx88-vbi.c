@@ -167,7 +167,6 @@ static void buffer_queue(struct vb2_buffer *vb)
 	struct cx88_buffer    *prev;
 	struct cx88_dmaqueue  *q    = &dev->vbiq;
 
-	/* add jump to start */
 	buf->risc.cpu[1] = cpu_to_le32(buf->risc.dma + 8);
 	buf->risc.jmp[0] = cpu_to_le32(RISC_JUMP | RISC_CNT_INC);
 	buf->risc.jmp[1] = cpu_to_le32(buf->risc.dma + 8);

@@ -55,6 +55,14 @@
 #include "console_cmdline.h"
 #include "braille.h"
 
+#ifdef CONFIG_EARLY_PRINTK_DIRECT
+extern void printascii(char *);
+#endif
+
+#ifdef CONFIG_HISI_APANIC
+extern void apanic_console_write(char *s, unsigned c);
+#endif
+
 int console_printk[4] = {
 	CONSOLE_LOGLEVEL_DEFAULT,	/* console_loglevel */
 	MESSAGE_LOGLEVEL_DEFAULT,	/* default_message_loglevel */
@@ -212,6 +220,8 @@ enum log_flags {
 	LOG_CONT	= 8,	/* text is a fragment of a continuation line */
 };
 
+#ifdef CONFIG_HISI_TIME
+#else
 struct printk_log {
 	u64 ts_nsec;		/* timestamp in nanoseconds */
 	u16 len;		/* length of entire record */
@@ -221,6 +231,7 @@ struct printk_log {
 	u8 flags:5;		/* internal record flags */
 	u8 level:3;		/* syslog level */
 };
+#endif
 
 /*
  * The logbuf_lock protects kmsg buffer, indices, counters.  This can be taken
@@ -228,6 +239,12 @@ struct printk_log {
  * console_unlock() or anything else that might wake up a process.
  */
 static DEFINE_RAW_SPINLOCK(logbuf_lock);
+#ifdef CONFIG_HISI_TIME
+raw_spinlock_t *g_logbuf_lock_ex = &logbuf_lock;
+#endif
+#ifdef CONFIG_HUAWEI_PRINTK_CTRL
+raw_spinlock_t *g_logbuf_level_lock_ex = &logbuf_lock;
+#endif
 
 #ifdef CONFIG_PRINTK
 DECLARE_WAIT_QUEUE_HEAD(log_wait);
@@ -254,7 +271,11 @@ static enum log_flags console_prev;
 static u64 clear_seq;
 static u32 clear_idx;
 
+#ifdef CONFIG_HISI_TIME
+#define PREFIX_MAX		80
+#else
 #define PREFIX_MAX		32
+#endif
 #define LOG_LINE_MAX		(1024 - PREFIX_MAX)
 
 /* record buffer */
@@ -413,6 +434,13 @@ static int log_store(int facility, int level,
 	struct printk_log *msg;
 	u32 size, pad_len;
 	u16 trunc_msg_len = 0;
+#ifdef CONFIG_HISI_TIME
+	char tmp_buf[100];
+	u16 tmp_len = 0;
+
+	hisi_log_store_add_time(tmp_buf, sizeof(tmp_buf), &tmp_len);
+	text_len += tmp_len;
+#endif
 
 	/* number of '\0' padding bytes to next message */
 	size = msg_used_size(text_len, dict_len, &pad_len);
@@ -427,18 +455,19 @@ static int log_store(int facility, int level,
 	}
 
 	if (log_next_idx + size + sizeof(struct printk_log) > log_buf_len) {
-		/*
-		 * This message + an additional empty header does not fit
-		 * at the end of the buffer. Add an empty header with len == 0
-		 * to signify a wrap around.
-		 */
+		
 		memset(log_buf + log_next_idx, 0, sizeof(struct printk_log));
 		log_next_idx = 0;
 	}
 
 	/* fill message */
 	msg = (struct printk_log *)(log_buf + log_next_idx);
+#ifdef CONFIG_HISI_TIME
+	memcpy(log_text(msg), tmp_buf, tmp_len);
+	memcpy(log_text(msg)+tmp_len, text, text_len-tmp_len);
+#else
 	memcpy(log_text(msg), text, text_len);
+#endif
 	msg->text_len = text_len;
 	if (trunc_msg_len) {
 		memcpy(log_text(msg) + text_len, trunc_msg, trunc_msg_len);
@@ -452,11 +481,20 @@ static int log_store(int facility, int level,
 	if (ts_nsec > 0)
 		msg->ts_nsec = ts_nsec;
 	else
+#ifdef CONFIG_HISI_TIME
+		msg->ts_nsec = hisi_getcurtime();
+#else
 		msg->ts_nsec = local_clock();
+#endif
 	memset(log_dict(msg) + dict_len, 0, pad_len);
 	msg->len = size;
 
 	/* insert message */
+#ifdef CONFIG_HISI_APANIC
+	if (msg->level < CONSOLE_LOGLEVEL_DEFAULT)
+		panic_print_msg(msg);
+#endif
+
 	log_next_idx += msg->len;
 	log_next_seq++;
 
@@ -746,7 +784,7 @@ static unsigned int devkmsg_poll(struct file *file, poll_table *wait)
 	}
 	raw_spin_unlock_irq(&logbuf_lock);
 
-	return ret;
+	return ret;/*[false alarm]:return */
 }
 
 static int devkmsg_open(struct inode *inode, struct file *file)
@@ -996,7 +1034,8 @@ static inline void boot_delay_msec(int level)
 
 static bool printk_time = IS_ENABLED(CONFIG_PRINTK_TIME);
 module_param_named(time, printk_time, bool, S_IRUGO | S_IWUSR);
-
+#if defined(CONFIG_HISI_TIME)
+#else
 static size_t print_time(u64 ts, char *buf)
 {
 	unsigned long rem_nsec;
@@ -1012,6 +1051,7 @@ static size_t print_time(u64 ts, char *buf)
 	return sprintf(buf, "[%5lu.%06lu] ",
 		       (unsigned long)ts, rem_nsec / 1000);
 }
+#endif
 
 static size_t print_prefix(const struct printk_log *msg, bool syslog, char *buf)
 {
@@ -1564,7 +1604,11 @@ static bool cont_add(int facility, int level, const char *text, size_t len)
 		cont.facility = facility;
 		cont.level = level;
 		cont.owner = current;
+#ifdef CONFIG_HISI_TIME
+		cont.ts_nsec = hisi_getcurtime();
+#else
 		cont.ts_nsec = local_clock();
+#endif
 		cont.flags = 0;
 		cont.cons = 0;
 		cont.flushed = false;
@@ -1705,8 +1749,22 @@ asmlinkage int vprintk_emit(int facility, int level,
 		}
 	}
 
+#ifdef CONFIG_EARLY_PRINTK_DIRECT
+	printascii(text);
+#endif
+
 	if (level == LOGLEVEL_DEFAULT)
 		level = default_message_loglevel;
+
+#ifdef CONFIG_HUAWEI_PRINTK_CTRL
+	if (level > printk_level) {
+		logbuf_cpu = UINT_MAX;
+		raw_spin_unlock(&logbuf_lock);
+		lockdep_on();
+		local_irq_restore(flags);
+		return 0;
+	}
+#endif
 
 	if (dict)
 		lflags |= LOG_PREFIX|LOG_NEWLINE;
@@ -1737,12 +1795,21 @@ asmlinkage int vprintk_emit(int facility, int level,
 		 * If the preceding printk was from a different task and missed
 		 * a newline, flush and append the newline.
 		 */
+#ifdef CONFIG_HISI_TIME
+		if (cont.len) {
+			if (cont.owner == current && !(lflags & LOG_PREFIX))
+				stored = cont_add(facility, level, text,
+						  text_len);
+		}
+		cont_flush(LOG_NEWLINE);
+#else
 		if (cont.len) {
 			if (cont.owner == current && !(lflags & LOG_PREFIX))
 				stored = cont_add(facility, level, text,
 						  text_len);
 			cont_flush(LOG_NEWLINE);
 		}
+#endif
 
 		if (stored)
 			printed_len += text_len;
@@ -2071,8 +2138,13 @@ static int console_cpu_notify(struct notifier_block *self,
 	case CPU_DEAD:
 	case CPU_DOWN_FAILED:
 	case CPU_UP_CANCELED:
+#ifdef CONFIG_HISI_TIME
+		if (console_trylock())
+			console_unlock();
+#else
 		console_lock();
 		console_unlock();
+#endif
 	}
 	return NOTIFY_OK;
 }
@@ -3072,6 +3144,13 @@ void dump_stack_print_info(const char *log_lvl)
 	       (int)strcspn(init_utsname()->version, " "),
 	       init_utsname()->version);
 
+	/*
+	 * Some threads'name of android is the same in different process.
+	 * So we need to get the tgid and the comm of thread's group_leader.
+	 */
+	printk("TGID: %d Comm: %.20s\n",
+	       current->tgid, current->group_leader->comm);
+
 	if (dump_stack_arch_desc_str[0] != '\0')
 		printk("%sHardware name: %s\n",
 		       log_lvl, dump_stack_arch_desc_str);
@@ -3094,5 +3173,7 @@ void show_regs_print_info(const char *log_lvl)
 	       log_lvl, current, current_thread_info(),
 	       task_thread_info(current));
 }
-
+#ifdef CONFIG_HISI_TIME
+#include "hisi_printk.c"
+#endif
 #endif

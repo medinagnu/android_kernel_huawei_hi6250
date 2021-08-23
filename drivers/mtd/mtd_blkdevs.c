@@ -412,8 +412,10 @@ int add_mtd_blktrans_dev(struct mtd_blktrans_dev *new)
 	if (!new->rq)
 		goto error3;
 
+	/*lint -save -e747*/
 	if (tr->flush)
-		blk_queue_flush(new->rq, REQ_FLUSH);
+		blk_queue_write_cache(new->rq, true, false);
+	/*lint -restore*/
 
 	new->rq->queuedata = new;
 	blk_queue_logical_block_size(new->rq, tr->blksize);
@@ -423,7 +425,7 @@ int add_mtd_blktrans_dev(struct mtd_blktrans_dev *new)
 
 	if (tr->discard) {
 		queue_flag_set_unlocked(QUEUE_FLAG_DISCARD, new->rq);
-		new->rq->limits.max_discard_sectors = UINT_MAX;
+		blk_queue_max_discard_sectors(new->rq, UINT_MAX);
 	}
 
 	gd->queue = new->rq;

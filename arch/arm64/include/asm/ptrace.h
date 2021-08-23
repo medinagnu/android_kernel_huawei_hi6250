@@ -181,12 +181,18 @@ static inline int valid_user_regs(struct user_pt_regs *regs)
 	return 0;
 }
 
-#define instruction_pointer(regs)	((unsigned long)(regs)->pc)
+#define instruction_pointer(regs)	((regs)->pc)
+#define stack_pointer(regs)		((regs)->sp)
 
-#ifdef CONFIG_SMP
 extern unsigned long profile_pc(struct pt_regs *regs);
-#else
-#define profile_pc(regs) instruction_pointer(regs)
+
+
+#ifdef CONFIG_HISI_BB
+/*
+ * Get pt_regs info in handling exception.
+ * @regs: where to store pt_regs info
+ */
+extern void get_pt_regs(struct pt_regs *regs);
 #endif
 
 #endif /* __ASSEMBLY__ */

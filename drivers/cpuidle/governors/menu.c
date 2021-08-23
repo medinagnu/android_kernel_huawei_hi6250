@@ -21,6 +21,7 @@
 #include <linux/math64.h>
 #include <linux/module.h>
 
+#define PREDICT_THRESHOLD   5000000 //in us
 /*
  * Please note when changing the tuning values:
  * If (MAX_INTERESTING-1) * RESOLUTION > UINT_MAX, the result of
@@ -178,7 +179,12 @@ static inline int performance_multiplier(unsigned long nr_iowaiters, unsigned lo
 
 	/* for higher loadavg, we are more reluctant */
 
-	mult += 2 * get_loadavg(load);
+	/*
+	 * this doesn't work as intended - it is almost always 0, but can
+	 * sometimes, depending on workload, spike very high into the hundreds
+	 * even when the average cpu load is under 10%.
+	 */
+	/* mult += 2 * get_loadavg(); */
 
 	/* for IO wait tasks (per cpu!) we add 5x each */
 	mult += 10 * nr_iowaiters;
@@ -336,6 +342,15 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev)
 		data->last_state_idx = CPUIDLE_DRIVER_STATE_START;
 
 	/*
+	 * We disable the predict when the next timer is too long,
+	 * so that it'll not stay in a light C state for a long time after
+	 * a wrong predict.
+	 */
+	if (data->next_timer_us > PREDICT_THRESHOLD)
+		data->predicted_us = data->next_timer_us;
+
+
+	/*
 	 * Find the idle state with the lowest power while satisfying
 	 * our constraints.
 	 */
@@ -367,9 +382,9 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev)
 static void menu_reflect(struct cpuidle_device *dev, int index)
 {
 	struct menu_device *data = this_cpu_ptr(&menu_devices);
+
 	data->last_state_idx = index;
-	if (index >= 0)
-		data->needs_update = 1;
+	data->needs_update = 1;
 }
 
 /**

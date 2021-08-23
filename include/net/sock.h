@@ -217,6 +217,23 @@ struct sock_common {
 	/* public: */
 };
 
+#ifdef CONFIG_HW_CROSSLAYER_OPT
+/* cdn: Cross-layer Dropped Notification */
+#define MAX_CDN_QSIZE 256
+
+struct cdn_queue {
+	struct cdn_queue	*next;
+	u32			seq;
+	u32			padding;
+};
+
+struct cdn_entry {
+	struct cdn_queue	pool[MAX_CDN_QSIZE];
+	struct cdn_queue	*hint;
+	struct cdn_queue	*head;
+	int			index;
+};
+#endif
 struct cg_proto;
 /**
   *	struct sock - network layer representation of sockets
@@ -369,6 +386,20 @@ struct sock {
 	struct sk_filter __rcu	*sk_filter;
 	struct socket_wq __rcu	*sk_wq;
 
+#ifdef CONFIG_HUAWEI_BASTET
+	struct bastet_sock *bastet;
+	struct bastet_reconn *reconn;
+	int fg_Spec;
+	int fg_Step;
+	bool prio_channel;
+	uint8_t acc_state;
+#endif
+
+#ifdef CONFIG_HW_WIFIPRO
+	int wifipro_is_google_sock;
+	char wifipro_dev_name[IFNAMSIZ];
+#endif
+
 #ifdef CONFIG_XFRM
 	struct xfrm_policy	*sk_policy[2];
 #endif
@@ -439,6 +470,20 @@ struct sock {
 	int			(*sk_backlog_rcv)(struct sock *sk,
 						  struct sk_buff *skb);
 	void                    (*sk_destruct)(struct sock *sk);
+#ifdef CONFIG_HW_CROSSLAYER_OPT_DBG_MODULE
+	u32			start_seq;
+	u32			snd_id;
+	u32			nowrtt;
+	u32			fast_rexmit_cnts;
+	u32			timeout_rexmit_cnts;
+	u32			modem_drop_rexmit_cnts;
+	u32			undo_modem_drop_cnts;
+#endif
+#ifdef CONFIG_HW_CROSSLAYER_OPT
+	struct cdn_entry	*sk_dropped;
+	u32			undo_modem_drop_marker;
+	u32			cdn_hash_marker;
+#endif
 };
 
 #define __sk_user_data(sk) ((*((void __rcu **)&(sk)->sk_user_data)))
@@ -722,8 +767,6 @@ enum sock_flags {
 	SOCK_FILTER_LOCKED, /* Filter cannot be changed anymore */
 	SOCK_SELECT_ERR_QUEUE, /* Wake select on error queue */
 };
-
-#define SK_FLAGS_TIMESTAMP ((1UL << SOCK_TIMESTAMP) | (1UL << SOCK_TIMESTAMPING_RX_SOFTWARE))
 
 static inline void sock_copy_flags(struct sock *nsk, struct sock *osk)
 {
@@ -1050,6 +1093,7 @@ struct proto {
 	void			(*destroy_cgroup)(struct mem_cgroup *memcg);
 	struct cg_proto		*(*proto_cgroup)(struct mem_cgroup *memcg);
 #endif
+	int			(*diag_destroy)(struct sock *sk, int err);
 };
 
 /*

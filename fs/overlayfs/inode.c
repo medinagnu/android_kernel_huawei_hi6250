@@ -11,6 +11,7 @@
 #include <linux/slab.h>
 #include <linux/xattr.h>
 #include "overlayfs.h"
+#include <linux/security.h>
 
 static int ovl_copy_up_last(struct dentry *dentry, struct iattr *attr,
 			    bool no_data)
@@ -62,13 +63,13 @@ int ovl_setattr(struct dentry *dentry, struct iattr *attr)
 	if (err)
 		goto out;
 
-	upperdentry = ovl_dentry_upper(dentry);
-	if (upperdentry) {
+	err = ovl_copy_up(dentry);
+	if (!err) {
+		upperdentry = ovl_dentry_upper(dentry);
+
 		mutex_lock(&upperdentry->d_inode->i_mutex);
 		err = notify_change(upperdentry, attr, NULL);
 		mutex_unlock(&upperdentry->d_inode->i_mutex);
-	} else {
-		err = ovl_copy_up_last(dentry, attr, false);
 	}
 	ovl_drop_write(dentry);
 out:
@@ -110,6 +111,29 @@ int ovl_permission(struct inode *inode, int mask)
 	}
 
 	realdentry = ovl_entry_real(oe, &is_upper);
+
+	if (ovl_is_default_permissions(inode)) {
+		struct kstat stat;
+		struct path realpath = { .dentry = realdentry };
+
+		if (mask & MAY_NOT_BLOCK)
+			return -ECHILD;
+
+		realpath.mnt = ovl_entry_mnt_real(oe, inode, is_upper);
+
+		err = vfs_getattr(&realpath, &stat);
+		if (err)
+			return err;
+
+		if ((stat.mode ^ inode->i_mode) & S_IFMT)
+			return -ESTALE;
+
+		inode->i_mode = stat.mode;
+		inode->i_uid = stat.uid;
+		inode->i_gid = stat.gid;
+
+		return generic_permission(inode, mask);
+	}
 
 	/* Careful in RCU walk mode */
 	realinode = ACCESS_ONCE(realdentry->d_inode);
@@ -399,6 +423,30 @@ static const struct inode_operations ovl_symlink_inode_operations = {
 	.listxattr	= ovl_listxattr,
 	.removexattr	= ovl_removexattr,
 };
+
+void ovl_copyattr(struct inode *from, struct inode *to)
+{
+#ifdef CONFIG_SECURITY
+	void   *secctx;
+	size_t  ctxlen;
+	int     err = -1;
+
+	err = security_inode_getsecctx(from, &secctx, &ctxlen);
+	if (!err) {
+		/*
+		 * replace the fresh inode_security_struct because it should be
+		 * the same as the real underlying inode.
+		 */
+		err = security_inode_notifysecctx(to, secctx, ctxlen);
+		security_release_secctx(secctx, ctxlen);
+	}
+	if (err)
+		WARN(1, "cannot copy up security context err:%d\n", err);
+
+#endif
+	to->i_uid = from->i_uid;
+	to->i_gid = from->i_gid;
+}
 
 struct inode *ovl_new_inode(struct super_block *sb, umode_t mode,
 			    struct ovl_entry *oe)

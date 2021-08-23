@@ -1,21 +1,4 @@
-/*
- * Signal handling for 32bit PPC and 32bit tasks on 64bit PPC
- *
- *  PowerPC version
- *    Copyright (C) 1995-1996 Gary Thomas (gdt@linuxppc.org)
- * Copyright (C) 2001 IBM
- * Copyright (C) 1997,1998 Jakub Jelinek (jj@sunsite.mff.cuni.cz)
- * Copyright (C) 1997 David S. Miller (davem@caip.rutgers.edu)
- *
- *  Derived from "arch/i386/kernel/signal.c"
- *    Copyright (C) 1991, 1992 Linus Torvalds
- *    1997-11-28  Modified for POSIX.1b signals by Richard Henderson
- *
- *  This program is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU General Public License
- *  as published by the Free Software Foundation; either version
- *  2 of the License, or (at your option) any later version.
- */
+
 
 #include <linux/sched.h>
 #include <linux/mm.h>
@@ -67,10 +50,7 @@
 
 #define __save_altstack __compat_save_altstack
 
-/*
- * Userspace code may pass a ucontext which doesn't include VSX added
- * at the end.  We need to check for this case.
- */
+
 #define UCONTEXTSIZEWITHOUTVSX \
 		(sizeof(struct ucontext) - sizeof(elf_vsrreghalf_t32))
 
@@ -875,15 +855,6 @@ static long restore_tm_user_regs(struct pt_regs *regs,
 		return 1;
 #endif /* CONFIG_SPE */
 
-	/* Get the top half of the MSR from the user context */
-	if (__get_user(msr_hi, &tm_sr->mc_gregs[PT_MSR]))
-		return 1;
-	msr_hi <<= 32;
-	/* If TM bits are set to the reserved value, it's an invalid context */
-	if (MSR_TM_RESV(msr_hi))
-		return 1;
-	/* Pull in the MSR TM bits from the user context */
-	regs->msr = (regs->msr & ~MSR_TS_MASK) | (msr_hi & MSR_TS_MASK);
 	/* Now, recheckpoint.  This loads up all of the checkpointed (older)
 	 * registers, including FP and V[S]Rs.  After recheckpointing, the
 	 * transactional versions should be loaded.
@@ -893,6 +864,11 @@ static long restore_tm_user_regs(struct pt_regs *regs,
 	current->thread.tm_texasr |= TEXASR_FS;
 	/* This loads the checkpointed FP/VEC state, if used */
 	tm_recheckpoint(&current->thread, msr);
+	/* Get the top half of the MSR */
+	if (__get_user(msr_hi, &tm_sr->mc_gregs[PT_MSR]))
+		return 1;
+	/* Pull in MSR TM from user context */
+	regs->msr = (regs->msr & ~MSR_TS_MASK) | ((msr_hi<<32) & MSR_TS_MASK);
 
 	/* This loads the speculative FP/VEC state, if used */
 	if (msr & MSR_FP) {

@@ -916,7 +916,7 @@ static int __reqbufs(struct vb2_queue *q, struct v4l2_requestbuffers *req)
 	num_buffers = min_t(unsigned int, req->count, VIDEO_MAX_FRAME);
 	num_buffers = max_t(unsigned int, num_buffers, q->min_buffers_needed);
 	memset(q->plane_sizes, 0, sizeof(q->plane_sizes));
-	memset(q->alloc_ctx, 0, sizeof(q->alloc_ctx));
+	memset(q->alloc_ctx, 0, sizeof(q->alloc_ctx));/* [false alarm]:original code */
 	q->memory = req->memory;
 
 	/*
@@ -1025,7 +1025,7 @@ static int __create_bufs(struct vb2_queue *q, struct v4l2_create_buffers *create
 
 	if (!q->num_buffers) {
 		memset(q->plane_sizes, 0, sizeof(q->plane_sizes));
-		memset(q->alloc_ctx, 0, sizeof(q->alloc_ctx));
+		memset(q->alloc_ctx, 0, sizeof(q->alloc_ctx));/* [false alarm]:original code */
 		q->memory = create->memory;
 		q->waiting_for_buffers = !V4L2_TYPE_IS_OUTPUT(q->type);
 	}
@@ -2994,7 +2994,7 @@ static size_t __vb2_perform_fileio(struct vb2_queue *q, char __user *data, size_
 		ret = __vb2_init_fileio(q, read);
 		dprintk(3, "vb2_init_fileio result: %d\n", ret);
 		if (ret)
-			return ret;
+			return ret;/* [false alarm]:original code */
 	}
 	fileio = q->fileio;
 
@@ -3017,7 +3017,7 @@ static size_t __vb2_perform_fileio(struct vb2_queue *q, char __user *data, size_
 		ret = vb2_internal_dqbuf(q, &fileio->b, nonblock);
 		dprintk(5, "vb2_dqbuf result: %d\n", ret);
 		if (ret)
-			return ret;
+			return ret;/* [false alarm]:original code */
 		fileio->dq_count += 1;
 
 		fileio->cur_index = index = fileio->b.index;
@@ -3099,7 +3099,7 @@ static size_t __vb2_perform_fileio(struct vb2_queue *q, char __user *data, size_
 		ret = vb2_internal_qbuf(q, &fileio->b);
 		dprintk(5, "vb2_dbuf result: %d\n", ret);
 		if (ret)
-			return ret;
+			return ret;/* [false alarm]:original code */
 
 		/*
 		 * Buffer has been queued, update the status
@@ -3129,7 +3129,7 @@ static size_t __vb2_perform_fileio(struct vb2_queue *q, char __user *data, size_
 	 */
 	if (ret == 0)
 		ret = count;
-	return ret;
+	return ret;/* [false alarm]:original code */
 }
 
 size_t vb2_read(struct vb2_queue *q, char __user *data, size_t count,

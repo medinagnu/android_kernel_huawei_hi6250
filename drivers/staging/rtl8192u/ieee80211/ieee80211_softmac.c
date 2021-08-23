@@ -1115,7 +1115,6 @@ inline struct sk_buff *ieee80211_association_req(struct ieee80211_network *beaco
 
 	ieee80211_MFIE_Brate(ieee, &tag);
 	ieee80211_MFIE_Grate(ieee, &tag);
-	// For CCX 1 S13, CKIP. Added by Annie, 2006-08-14.
 	if (beacon->bCkipSupported) {
 		static u8	AironetIeOui[] = {0x00, 0x01, 0x66}; // "4500-client"
 		u8	CcxAironetBuf[30];

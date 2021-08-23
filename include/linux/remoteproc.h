@@ -41,6 +41,8 @@
 #include <linux/virtio.h>
 #include <linux/completion.h>
 #include <linux/idr.h>
+#include <linux/rproc_share.h>
+#include <linux/firmware.h>
 
 /**
  * struct resource_table - firmware resource table header
@@ -115,7 +117,13 @@ enum fw_resource_type {
 	RSC_DEVMEM	= 1,
 	RSC_TRACE	= 2,
 	RSC_VDEV	= 3,
-	RSC_LAST	= 4,
+	RSC_VERSION	= 4,
+	RSC_RDR_MEMORY	= 5,
+	RSC_DYNAMIC_MEMORY	= 6,
+	RSC_RESERVED_MEMORY	= 7,
+	RSC_CDA	= 8,
+	RSC_SHARED_PARA	= 9,
+	RSC_LAST	= 10,
 };
 
 #define FW_RSC_ADDR_ANY (0xFFFFFFFFFFFFFFFF)
@@ -234,6 +242,72 @@ struct fw_rsc_trace {
 } __packed;
 
 /**
+ * struct fw_rsc_trace - print version information
+ * @magic: magic word
+ * @module: module
+ * @version: version info
+ * @built_time: built time
+ * @reserved: reserved (must be zero)
+ */
+struct fw_rsc_version {
+	unsigned int magic;
+	char module[8];
+	char version[8];
+	char build_time[32];
+	char reserved[4];
+} __packed;
+
+/**
+ * struct fw_rsc_carveout - physically non-contiguous memory request
+ * @da: device address
+ * @pa: physical address
+ * @len: length (in bytes)
+ * @flags: iommu protection flags
+ * @reserved: reserved (must be zero)
+ * @name: human-readable name of the requested memory region
+ */
+struct fw_rsc_dynamic_memory {
+	u32 da;
+	u32 pa;
+	u32 len;
+	u32 flags;
+	u32 reserved;
+	u8 name[32];
+} __packed;
+
+/**
+ * struct fw_rsc_carveout - physically reserved memory request
+ * @da: device address
+ * @pa: physical address
+ * @len: length (in bytes)
+ * @flags: iommu protection flags
+ * @reserved: reserved (must be zero)
+ * @name: human-readable name of the requested memory region
+ */
+struct fw_rsc_reserved_memory {
+	u32 da;
+	u32 pa;
+	u32 len;
+	u32 flags;
+	u32 reserved;
+	u8 name[32];
+} __packed;
+
+/**
+ * struct fw_rsc_trace - cda buffer declaration
+ * @da: device address
+ * @len: length (in bytes)
+ * @reserved: reserved (must be zero)
+ * @name: human-readable name of the trace buffer
+ */
+struct fw_rsc_cda {
+	u32 da;
+	u32 len;
+	u32 reserved;
+	u8 name[32];
+} __packed;
+
+/**
  * struct fw_rsc_vdev_vring - vring descriptor entry
  * @da: device address
  * @align: the alignment between the consumer and producer parts of the vring
@@ -320,6 +394,30 @@ struct rproc_mem_entry {
 	int len;
 	u32 da;
 	void *priv;
+	struct list_head node;
+};
+
+/**
+ * struct rproc_cache_entry - memory cache entry
+ * @va:	virtual address
+ * @len: length, in bytes
+ * @node: list node
+ */
+struct rproc_cache_entry {
+	void *va;
+	u32 len;
+	struct list_head node;
+};
+
+/**
+ * struct rproc_page - page memory
+ * @va:	virtual address of pages
+ * @num: number of pages
+ * @node: list node
+ */
+struct rproc_page {
+	void *va;
+	u32 num;
 	struct list_head node;
 };
 
@@ -411,6 +509,7 @@ struct rproc {
 	struct iommu_domain *domain;
 	const char *name;
 	const char *firmware;
+	const char *bootware;
 	void *priv;
 	const struct rproc_ops *ops;
 	struct device dev;
@@ -421,22 +520,33 @@ struct rproc {
 	struct dentry *dbg_dir;
 	struct list_head traces;
 	int num_traces;
+	int num_cdas;
 	struct list_head carveouts;
 	struct list_head mappings;
+	struct list_head dynamic_mems;
+	struct list_head reserved_mems;
+	struct list_head cdas;
+	struct list_head caches;
+	struct list_head pages;
 	struct completion firmware_loading_complete;
 	u32 bootaddr;
+	bool rproc_enable_flag;
+	bool sync_flag;
+	unsigned int ipc_addr;
 	struct list_head rvdevs;
 	struct idr notifyids;
 	int index;
 	struct work_struct crash_handler;
 	unsigned crash_cnt;
 	struct completion crash_comp;
+	struct completion boot_comp;
 	bool recovery_disabled;
 	int max_notifyid;
 	struct resource_table *table_ptr;
 	struct resource_table *cached_table;
 	u32 table_csum;
 	bool has_iommu;
+	struct work_struct sec_rscwork;
 };
 
 /* we currently support only two vrings per rvdev */
@@ -481,6 +591,8 @@ struct rproc_vdev {
 	u32 rsc_offset;
 };
 
+int rproc_bootware_attach(struct rproc *rproc, const char *bootware);
+
 struct rproc *rproc_alloc(struct device *dev, const char *name,
 				const struct rproc_ops *ops,
 				const char *firmware, int len);
@@ -503,5 +615,37 @@ static inline struct rproc *vdev_to_rproc(struct virtio_device *vdev)
 
 	return rvdev->rproc;
 }
+
+extern int rproc_enable(struct rproc *rproc);
+extern unsigned int get_a7remap_addr(void);
+extern unsigned int get_a7sharedmem_addr(void);
+extern u64 get_isprdr_addr(void);
+extern struct rproc_shared_para *isp_share_para;
+void isp_loglevel_init(struct rproc_shared_para *param);
+struct rproc_shared_para *rproc_get_share_para(void);
+void init_isp_shared_params(struct rproc_shared_para *p, unsigned int len);
+void *rproc_da_to_va_priv(struct rproc *rproc, u64 da, int len);
+int rproc_handle_version(struct rproc *rproc, struct fw_rsc_version *rsc, int offset, int avail);
+int rproc_handle_cda(struct rproc *rproc, struct fw_rsc_cda *rsc, int offset, int avail);
+void rproc_memory_cache_flush(struct rproc *rproc);
+int vaddr_to_sgl(struct rproc *rproc, void **vaddr, unsigned int length, struct sg_table **table);
+int rproc_handle_dynamic_memory(struct rproc *rproc, struct fw_rsc_dynamic_memory *rsc, int offset, int avail);
+int rproc_handle_reserved_memory(struct rproc *rproc, struct fw_rsc_reserved_memory *rsc, int offset, int avail);
+int rproc_handle_rdr_memory(struct rproc *rproc, struct fw_rsc_carveout *rsc, int offset, int avail);
+int rproc_handle_shared_memory(struct rproc *rproc, struct fw_rsc_carveout *rsc, int offset, int avail);
+int rproc_bw_load(struct rproc *rproc, const struct firmware *fw);
+int rproc_set_shared_para(void);
+int rproc_bootware_attach(struct rproc *rproc, const char *bootware);
+
+extern int hisi_atfisp_probe(struct platform_device *pdev);
+extern int hisi_atfisp_remove(struct platform_device *pdev);
+extern int secisp_device_enable(void);
+extern int secisp_device_disable(void);
+extern void rproc_resource_cleanup(struct rproc *rproc);
+extern void rproc_fw_config_virtio(const struct firmware *fw, void *context);
+extern int hisp_meminit(unsigned int etype, unsigned long paddr);
+extern int sec_rproc_boot(struct rproc *rproc);
+extern int hisp_rsctable_init(void);
+extern void sec_rscwork_func(struct work_struct *work);
 
 #endif /* REMOTEPROC_H */

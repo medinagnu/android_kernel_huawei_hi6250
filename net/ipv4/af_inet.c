@@ -119,6 +119,23 @@
 #include <linux/mroute.h>
 #endif
 
+#ifdef CONFIG_ANDROID_PARANOID_NETWORK
+#include <linux/android_aid.h>
+
+#ifdef CONFIG_HW_COMMSTAT
+#include <huawei_platform/net/commstat/commstat.h>
+#endif
+
+static inline int current_has_network(void)
+{
+	return in_egroup_p(AID_INET) || capable(CAP_NET_RAW);
+}
+#else
+static inline int current_has_network(void)
+{
+	return 1;
+}
+#endif
 
 /* The inetsw table contains everything that inet_create needs to
  * build a new socket.
@@ -259,6 +276,9 @@ static int inet_create(struct net *net, struct socket *sock, int protocol,
 	int try_loading_module = 0;
 	int err;
 
+	if (!current_has_network())
+		return -EACCES;
+
 	if (protocol < 0 || protocol >= IPPROTO_MAX)
 		return -EINVAL;
 
@@ -310,8 +330,7 @@ lookup_protocol:
 	}
 
 	err = -EPERM;
-	if (sock->type == SOCK_RAW && !kern &&
-	    !ns_capable(net->user_ns, CAP_NET_RAW))
+	if (sock->type == SOCK_RAW && !kern && !capable(CAP_NET_RAW))
 		goto out_rcu_unlock;
 
 	sock->ops = answer->ops;
@@ -353,7 +372,9 @@ lookup_protocol:
 	sk->sk_destruct	   = inet_sock_destruct;
 	sk->sk_protocol	   = protocol;
 	sk->sk_backlog_rcv = sk->sk_prot->backlog_rcv;
-
+#ifdef CONFIG_HUAWEI_BASTET
+	sk->acc_state   = 0;
+#endif
 	inet->uc_ttl	= -1;
 	inet->mc_loop	= 1;
 	inet->mc_ttl	= 1;
@@ -400,6 +421,9 @@ int inet_release(struct socket *sock)
 	if (sk) {
 		long timeout;
 
+#ifdef CONFIG_HUAWEI_BASTET
+		bastet_inet_release(sk);
+#endif
 		/* Applications forget to leave groups before exiting */
 		ip_mc_drop_socket(sk);
 
@@ -724,6 +748,7 @@ EXPORT_SYMBOL(inet_getname);
 int inet_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 {
 	struct sock *sk = sock->sk;
+	int err;
 
 	sock_rps_record_flow(sk);
 
@@ -732,7 +757,14 @@ int inet_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 	    inet_autobind(sk))
 		return -EAGAIN;
 
-	return sk->sk_prot->sendmsg(sk, msg, size);
+	err = sk->sk_prot->sendmsg(sk, msg, size);
+
+#ifdef CONFIG_HW_COMMSTAT
+	if (err > 0)
+		inet_save_comm_stat(sock, 1, err);
+#endif
+
+	return err;
 }
 EXPORT_SYMBOL(inet_sendmsg);
 
@@ -765,8 +797,19 @@ int inet_recvmsg(struct socket *sock, struct msghdr *msg, size_t size,
 
 	err = sk->sk_prot->recvmsg(sk, msg, size, flags & MSG_DONTWAIT,
 				   flags & ~MSG_DONTWAIT, &addr_len);
+
+#ifdef CONFIG_HUAWEI_BASTET
+	err = bastet_block_recv(sock, msg, size, flags, &addr_len, err);
+#endif
+
 	if (err >= 0)
 		msg->msg_namelen = addr_len;
+
+#ifdef CONFIG_HW_COMMSTAT
+	if (err > 0)
+		inet_save_comm_stat(sock, 0, err);
+#endif
+
 	return err;
 }
 EXPORT_SYMBOL(inet_recvmsg);
@@ -1388,6 +1431,19 @@ out:
 	return pp;
 }
 
+static struct sk_buff **ipip_gro_receive(struct sk_buff **head,
+					 struct sk_buff *skb)
+{
+	if (NAPI_GRO_CB(skb)->encap_mark) {
+		NAPI_GRO_CB(skb)->flush = 1;
+		return NULL;
+	}
+
+	NAPI_GRO_CB(skb)->encap_mark = 1;
+
+	return inet_gro_receive(head, skb);
+}
+
 int inet_recv_error(struct sock *sk, struct msghdr *msg, int len, int *addr_len)
 {
 	if (sk->sk_family == AF_INET)
@@ -1528,6 +1584,11 @@ static __net_init int ipv4_mib_init_net(struct net *net)
 	net->mib.tcp_statistics = alloc_percpu(struct tcp_mib);
 	if (!net->mib.tcp_statistics)
 		goto err_tcp_mib;
+#ifdef CONFIG_HW_WIFIPRO
+	net->mib.wifipro_tcp_statistics = alloc_percpu(struct wifipro_tcp_mib);
+	if (!net->mib.wifipro_tcp_statistics)
+		goto err_wifipro_tcp_mib;
+#endif
 	net->mib.ip_statistics = alloc_percpu(struct ipstats_mib);
 	if (!net->mib.ip_statistics)
 		goto err_ip_mib;
@@ -1570,6 +1631,10 @@ err_net_mib:
 	free_percpu(net->mib.ip_statistics);
 err_ip_mib:
 	free_percpu(net->mib.tcp_statistics);
+#ifdef CONFIG_HW_WIFIPRO
+err_wifipro_tcp_mib:
+    free_percpu(net->mib.wifipro_tcp_statistics);
+#endif
 err_tcp_mib:
 	return -ENOMEM;
 }
@@ -1582,6 +1647,9 @@ static __net_exit void ipv4_mib_exit_net(struct net *net)
 	free_percpu(net->mib.udp_statistics);
 	free_percpu(net->mib.net_statistics);
 	free_percpu(net->mib.ip_statistics);
+#ifdef CONFIG_HW_WIFIPRO
+    free_percpu(net->mib.wifipro_tcp_statistics);
+#endif
 	free_percpu(net->mib.tcp_statistics);
 }
 
@@ -1646,7 +1714,7 @@ static struct packet_offload ip_packet_offload __read_mostly = {
 static const struct net_offload ipip_offload = {
 	.callbacks = {
 		.gso_segment	= inet_gso_segment,
-		.gro_receive	= inet_gro_receive,
+		.gro_receive	= ipip_gro_receive,
 		.gro_complete	= inet_gro_complete,
 	},
 };
@@ -1779,6 +1847,10 @@ static int __init inet_init(void)
 		pr_crit("%s: Cannot init ipv4 mibs\n", __func__);
 
 	ipv4_proc_init();
+
+#ifdef CONFIG_HW_COMMSTAT
+	comm_stat_init();
+#endif
 
 	ipfrag_init();
 

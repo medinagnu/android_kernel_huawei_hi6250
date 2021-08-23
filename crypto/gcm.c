@@ -130,7 +130,7 @@ static int crypto_gcm_setkey(struct crypto_aead *aead, const u8 *key,
 				       CRYPTO_TFM_RES_MASK);
 
 	data = kzalloc(sizeof(*data) + crypto_ablkcipher_reqsize(ctr),
-		       GFP_KERNEL);
+		       GFP_NOFS);
 	if (!data)
 		return -ENOMEM;
 
@@ -721,7 +721,7 @@ static struct crypto_instance *crypto_gcm_alloc_common(struct rtattr **tb,
 		return ERR_CAST(ghash_alg);
 
 	err = -ENOMEM;
-	inst = kzalloc(sizeof(*inst) + sizeof(*ctx), GFP_KERNEL);
+	inst = kzalloc(sizeof(*inst) + sizeof(*ctx), GFP_NOFS);
 	if (!inst)
 		goto out_put_ghash;
 

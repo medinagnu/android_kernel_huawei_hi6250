@@ -140,8 +140,6 @@ static int pci_bus_alloc_from_region(struct pci_bus *bus, struct resource *res,
 	type_mask |= IORESOURCE_TYPE_BITS;
 
 	pci_bus_for_each_resource(bus, r, i) {
-		resource_size_t min_used = min;
-
 		if (!r)
 			continue;
 
@@ -165,12 +163,12 @@ static int pci_bus_alloc_from_region(struct pci_bus *bus, struct resource *res,
 		 * overrides "min".
 		 */
 		if (avail.start)
-			min_used = avail.start;
+			min = avail.start;
 
 		max = avail.end;
 
 		/* Ok, try it out.. */
-		ret = allocate_resource(r, res, size, min_used, max,
+		ret = allocate_resource(r, res, size, min, max,
 					align, alignf, alignf_data);
 		if (ret == 0)
 			return 0;
@@ -271,12 +269,7 @@ bool pci_bus_clip_resource(struct pci_dev *dev, int idx)
 
 void __weak pcibios_resource_survey_bus(struct pci_bus *bus) { }
 
-/**
- * pci_bus_add_device - start driver for a single device
- * @dev: device to add
- *
- * This adds add sysfs entries and start device drivers
- */
+
 void pci_bus_add_device(struct pci_dev *dev)
 {
 	int retval;
@@ -286,9 +279,10 @@ void pci_bus_add_device(struct pci_dev *dev)
 	 * are not assigned yet for some devices.
 	 */
 	pci_fixup_device(pci_fixup_final, dev);
+#ifndef CONFIG_PCIE_KIRIN
 	pci_create_sysfs_dev_files(dev);
 	pci_proc_attach_device(dev);
-
+#endif
 	dev->match_driver = true;
 	retval = device_attach(&dev->dev);
 	WARN_ON(retval < 0);
@@ -297,12 +291,7 @@ void pci_bus_add_device(struct pci_dev *dev)
 }
 EXPORT_SYMBOL_GPL(pci_bus_add_device);
 
-/**
- * pci_bus_add_devices - start driver for PCI devices
- * @bus: bus to check for new devices
- *
- * Start driver for PCI devices and add some sysfs entries.
- */
+
 void pci_bus_add_devices(const struct pci_bus *bus)
 {
 	struct pci_dev *dev;

@@ -1,3 +1,4 @@
+/*lint -e846 -e514 -e866 -e30 -e84 -e846 -e516 -e574 -e737 -e644 -e786 -e702 */
 /*
  * ASCII values for a number of symbolic constants, printing functions,
  * etc.
@@ -1272,3 +1273,4 @@ const char *scsi_mlreturn_string(int result)
 	return NULL;
 }
 EXPORT_SYMBOL(scsi_mlreturn_string);
+/*lint +e846 +e514 +e866 +e30 +e84 +e846 +e516 +e574 +e737 +e644 +e786 +e702 */

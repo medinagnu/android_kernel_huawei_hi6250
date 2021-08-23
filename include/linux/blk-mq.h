@@ -94,6 +94,14 @@ typedef int (init_request_fn)(void *, struct request *, unsigned int,
 typedef void (exit_request_fn)(void *, struct request *, unsigned int,
 		unsigned int);
 
+#ifdef CONFIG_HISI_BLK_MQ
+struct blkdev_statistics_info;
+struct blk_dispatch_decision_para;
+typedef void (queue_statistics_fn)(struct request_queue *,struct blkdev_statistics_info*);
+typedef int (queue_io_wait_fn)(struct blk_dispatch_decision_para *,
+			int (*)(struct blk_dispatch_decision_para *));
+#endif
+
 typedef void (busy_iter_fn)(struct blk_mq_hw_ctx *, struct request *, void *,
 		bool);
 
@@ -134,6 +142,17 @@ struct blk_mq_ops {
 	 */
 	init_request_fn		*init_request;
 	exit_request_fn		*exit_request;
+
+#ifdef CONFIG_HISI_BLK_MQ
+	/*
+	 * Fetch low level IO statistics
+	 */
+	queue_statistics_fn	*queue_statistics;
+	/*
+	 * Wait for low level IO event, it'll be waken by low level driver.
+	 */
+	queue_io_wait_fn	*queue_io_wait;
+#endif
 };
 
 enum {
@@ -227,6 +246,7 @@ void blk_mq_tag_busy_iter(struct blk_mq_hw_ctx *hctx, busy_iter_fn *fn,
 void blk_mq_freeze_queue(struct request_queue *q);
 void blk_mq_unfreeze_queue(struct request_queue *q);
 void blk_mq_freeze_queue_start(struct request_queue *q);
+void blk_mq_shutdown_freeze_tagset(struct blk_mq_tag_set *tag_set);
 
 /*
  * Driver command data is immediately after the request. So subtract request

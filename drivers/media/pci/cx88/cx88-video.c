@@ -1,29 +1,4 @@
-/*
- *
- * device driver for Conexant 2388x based TV cards
- * video4linux video interface
- *
- * (c) 2003-04 Gerd Knorr <kraxel@bytesex.org> [SuSE Labs]
- *
- * (c) 2005-2006 Mauro Carvalho Chehab <mchehab@infradead.org>
- *	- Multituner support
- *	- video_ioctl2 conversion
- *	- PAL/M fixes
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
- *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
- */
+
 
 #include <linux/init.h>
 #include <linux/list.h>
@@ -516,7 +491,6 @@ static void buffer_queue(struct vb2_buffer *vb)
 	struct cx88_core      *core = dev->core;
 	struct cx88_dmaqueue  *q    = &dev->vidq;
 
-	/* add jump to start */
 	buf->risc.cpu[1] = cpu_to_le32(buf->risc.dma + 8);
 	buf->risc.jmp[0] = cpu_to_le32(RISC_JUMP | RISC_CNT_INC);
 	buf->risc.jmp[1] = cpu_to_le32(buf->risc.dma + 8);

@@ -23,10 +23,19 @@
 #include <linux/sysrq.h>
 #include <linux/init.h>
 #include <linux/nmi.h>
+#ifdef CONFIG_HISI_CORESIGHT_TRACE
+#include <linux/coresight.h>
+#endif
 #include <linux/console.h>
+#ifdef CONFIG_HISI_BB
+#include <asm/ptrace.h>
+#endif
 
 #define PANIC_TIMER_STEP 100
 #define PANIC_BLINK_SPD 18
+
+/* Machine specific panic information string */
+char *mach_panic_string;
 
 int panic_on_oops = CONFIG_PANIC_ON_OOPS_VALUE;
 static unsigned long tainted_mask;
@@ -76,6 +85,29 @@ void panic(const char *fmt, ...)
 	va_list args;
 	long i, i_next = 0;
 	int state = 0;
+#ifdef CONFIG_HISI_BB
+	struct pt_regs regs;
+#endif
+
+#ifdef CONFIG_HUAWEI_PRINTK_CTRL
+	printk_level_setup(LOGLEVEL_DEBUG);
+#endif
+
+#ifdef CONFIG_HISI_CORESIGHT_TRACE
+	etm4_disable_all();
+#endif
+
+#ifdef CONFIG_HISI_BB
+	memset(&regs, 0x00, sizeof(regs));
+	/*
+	 * Avoid nested register-dumping if a panic occurs during oops processing
+	 */
+	if (!test_taint(TAINT_DIE) && oops_in_progress == 0) {
+		get_pt_regs(&regs);
+		console_verbose();
+		show_regs(&regs);
+	}
+#endif
 
 	/*
 	 * Disable local interrupts. This will prevent panic_smp_self_stop
@@ -411,6 +443,11 @@ late_initcall(init_oops_id);
 void print_oops_end_marker(void)
 {
 	init_oops_id();
+
+	if (mach_panic_string)
+		printk(KERN_WARNING "Board Information: %s\n",
+		       mach_panic_string);
+
 	pr_warn("---[ end trace %016llx ]---\n", (unsigned long long)oops_id);
 }
 
@@ -422,7 +459,7 @@ void oops_exit(void)
 {
 	do_oops_enter_exit();
 	print_oops_end_marker();
-	kmsg_dump(KMSG_DUMP_OOPS);
+	/*kmsg_dump has been done in the func of rdr_hisiap_reset*/
 }
 
 #ifdef WANT_WARN_ON_SLOWPATH

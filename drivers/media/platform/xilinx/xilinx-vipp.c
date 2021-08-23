@@ -1,16 +1,4 @@
-/*
- * Xilinx Video IP Composite Device
- *
- * Copyright (C) 2013-2015 Ideas on Board
- * Copyright (C) 2013-2015 Xilinx, Inc.
- *
- * Contacts: Hyun Kwon <hyun.kwon@xilinx.com>
- *           Laurent Pinchart <laurent.pinchart@ideasonboard.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- */
+
 
 #include <linux/list.h>
 #include <linux/module.h>
@@ -402,12 +390,7 @@ static int xvip_graph_parse(struct xvip_composite_device *xdev)
 	struct xvip_graph_entity *entity;
 	int ret;
 
-	/*
-	 * Walk the links to parse the full graph. Start by parsing the
-	 * composite node and then parse entities in turn. The list_for_each
-	 * loop will handle entities added at the end of the list while walking
-	 * the links.
-	 */
+	
 	ret = xvip_graph_parse_one(xdev, xdev->dev->of_node);
 	if (ret < 0)
 		return 0;

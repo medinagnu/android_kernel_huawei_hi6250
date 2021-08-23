@@ -461,7 +461,8 @@ struct ring_buffer_per_cpu {
 	raw_spinlock_t			reader_lock;	/* serialize readers */
 	arch_spinlock_t			lock;
 	struct lock_class_key		lock_key;
-	unsigned int			nr_pages;
+	unsigned long			nr_pages;
+	unsigned int			current_context;
 	struct list_head		*pages;
 	struct buffer_page		*head_page;	/* read from head */
 	struct buffer_page		*tail_page;	/* write to tail */
@@ -481,7 +482,7 @@ struct ring_buffer_per_cpu {
 	u64				write_stamp;
 	u64				read_stamp;
 	/* ring buffer pages to update, > 0 to add, < 0 to remove */
-	int				nr_pages_to_update;
+	long				nr_pages_to_update;
 	struct list_head		new_pages; /* new pages to add */
 	struct work_struct		update_pages_work;
 	struct completion		update_done;
@@ -734,74 +735,7 @@ void ring_buffer_normalize_time_stamp(struct ring_buffer *buffer,
 }
 EXPORT_SYMBOL_GPL(ring_buffer_normalize_time_stamp);
 
-/*
- * Making the ring buffer lockless makes things tricky.
- * Although writes only happen on the CPU that they are on,
- * and they only need to worry about interrupts. Reads can
- * happen on any CPU.
- *
- * The reader page is always off the ring buffer, but when the
- * reader finishes with a page, it needs to swap its page with
- * a new one from the buffer. The reader needs to take from
- * the head (writes go to the tail). But if a writer is in overwrite
- * mode and wraps, it must push the head page forward.
- *
- * Here lies the problem.
- *
- * The reader must be careful to replace only the head page, and
- * not another one. As described at the top of the file in the
- * ASCII art, the reader sets its old page to point to the next
- * page after head. It then sets the page after head to point to
- * the old reader page. But if the writer moves the head page
- * during this operation, the reader could end up with the tail.
- *
- * We use cmpxchg to help prevent this race. We also do something
- * special with the page before head. We set the LSB to 1.
- *
- * When the writer must push the page forward, it will clear the
- * bit that points to the head page, move the head, and then set
- * the bit that points to the new head page.
- *
- * We also don't want an interrupt coming in and moving the head
- * page on another writer. Thus we use the second LSB to catch
- * that too. Thus:
- *
- * head->list->prev->next        bit 1          bit 0
- *                              -------        -------
- * Normal page                     0              0
- * Points to head page             0              1
- * New head page                   1              0
- *
- * Note we can not trust the prev pointer of the head page, because:
- *
- * +----+       +-----+        +-----+
- * |    |------>|  T  |---X--->|  N  |
- * |    |<------|     |        |     |
- * +----+       +-----+        +-----+
- *   ^                           ^ |
- *   |          +-----+          | |
- *   +----------|  R  |----------+ |
- *              |     |<-----------+
- *              +-----+
- *
- * Key:  ---X-->  HEAD flag set in pointer
- *         T      Tail page
- *         R      Reader page
- *         N      Next page
- *
- * (see __rb_reserve_next() to see where this happens)
- *
- *  What the above shows is that the reader just swapped out
- *  the reader page with a page in the buffer, but before it
- *  could make the new header point back to the new page added
- *  it was preempted by a writer. The writer moved forward onto
- *  the new page added by the reader and is about to move forward
- *  again.
- *
- *  You can see, it is legitimate for the previous pointer of
- *  the head (or any page) not to point back to itself. But only
- *  temporarially.
- */
+
 
 #define RB_PAGE_NORMAL		0UL
 #define RB_PAGE_HEAD		1UL
@@ -1160,10 +1094,10 @@ static int rb_check_pages(struct ring_buffer_per_cpu *cpu_buffer)
 	return 0;
 }
 
-static int __rb_allocate_pages(int nr_pages, struct list_head *pages, int cpu)
+static int __rb_allocate_pages(long nr_pages, struct list_head *pages, int cpu)
 {
-	int i;
 	struct buffer_page *bpage, *tmp;
+	long i;
 
 	for (i = 0; i < nr_pages; i++) {
 		struct page *page;
@@ -1200,7 +1134,7 @@ free_pages:
 }
 
 static int rb_allocate_pages(struct ring_buffer_per_cpu *cpu_buffer,
-			     unsigned nr_pages)
+			     unsigned long nr_pages)
 {
 	LIST_HEAD(pages);
 
@@ -1225,7 +1159,7 @@ static int rb_allocate_pages(struct ring_buffer_per_cpu *cpu_buffer,
 }
 
 static struct ring_buffer_per_cpu *
-rb_allocate_cpu_buffer(struct ring_buffer *buffer, int nr_pages, int cpu)
+rb_allocate_cpu_buffer(struct ring_buffer *buffer, long nr_pages, int cpu)
 {
 	struct ring_buffer_per_cpu *cpu_buffer;
 	struct buffer_page *bpage;
@@ -1325,8 +1259,9 @@ struct ring_buffer *__ring_buffer_alloc(unsigned long size, unsigned flags,
 					struct lock_class_key *key)
 {
 	struct ring_buffer *buffer;
+	long nr_pages;
 	int bsize;
-	int cpu, nr_pages;
+	int cpu;
 
 	/* keep it in its own cache line */
 	buffer = kzalloc(ALIGN(sizeof(*buffer), cache_line_size()),
@@ -1452,12 +1387,12 @@ static inline unsigned long rb_page_write(struct buffer_page *bpage)
 }
 
 static int
-rb_remove_pages(struct ring_buffer_per_cpu *cpu_buffer, unsigned int nr_pages)
+rb_remove_pages(struct ring_buffer_per_cpu *cpu_buffer, unsigned long nr_pages)
 {
 	struct list_head *tail_page, *to_remove, *next_page;
 	struct buffer_page *to_remove_page, *tmp_iter_page;
 	struct buffer_page *last_page, *first_page;
-	unsigned int nr_removed;
+	unsigned long nr_removed;
 	unsigned long head_bit;
 	int page_entries;
 
@@ -1674,7 +1609,7 @@ int ring_buffer_resize(struct ring_buffer *buffer, unsigned long size,
 			int cpu_id)
 {
 	struct ring_buffer_per_cpu *cpu_buffer;
-	unsigned nr_pages;
+	unsigned long nr_pages;
 	int cpu, err = 0;
 
 	/*
@@ -1688,14 +1623,13 @@ int ring_buffer_resize(struct ring_buffer *buffer, unsigned long size,
 	    !cpumask_test_cpu(cpu_id, buffer->cpumask))
 		return size;
 
-	size = DIV_ROUND_UP(size, BUF_PAGE_SIZE);
-	size *= BUF_PAGE_SIZE;
+	nr_pages = DIV_ROUND_UP(size, BUF_PAGE_SIZE);
 
 	/* we need a minimum of two pages */
-	if (size < BUF_PAGE_SIZE * 2)
-		size = BUF_PAGE_SIZE * 2;
+	if (nr_pages < 2)
+		nr_pages = 2;
 
-	nr_pages = DIV_ROUND_UP(size, BUF_PAGE_SIZE);
+	size = nr_pages * BUF_PAGE_SIZE;
 
 	/*
 	 * Don't succeed if resizing is disabled, as a reader might be
@@ -2041,10 +1975,7 @@ rb_update_event(struct ring_buffer_per_cpu *cpu_buffer,
 	if (unlikely(!rb_event_is_commit(cpu_buffer, event)))
 		delta = 0;
 
-	/*
-	 * If we need to add a timestamp, then we
-	 * add it to the start of the resevered space.
-	 */
+	
 	if (unlikely(add_timestamp)) {
 		event = rb_add_time_stamp(event, delta);
 		length -= RB_LEN_TIME_EXTEND;
@@ -2675,11 +2606,11 @@ rb_reserve_next_event(struct ring_buffer *buffer,
  * just so happens that it is the same bit corresponding to
  * the current context.
  */
-static DEFINE_PER_CPU(unsigned int, current_context);
 
-static __always_inline int trace_recursive_lock(void)
+static __always_inline int
+trace_recursive_lock(struct ring_buffer_per_cpu *cpu_buffer)
 {
-	unsigned int val = __this_cpu_read(current_context);
+	unsigned int val = cpu_buffer->current_context;
 	int bit;
 
 	if (in_interrupt()) {
@@ -2696,20 +2627,21 @@ static __always_inline int trace_recursive_lock(void)
 		return 1;
 
 	val |= (1 << bit);
-	__this_cpu_write(current_context, val);
+	cpu_buffer->current_context = val;
 
 	return 0;
 }
 
-static __always_inline void trace_recursive_unlock(void)
+static __always_inline void
+trace_recursive_unlock(struct ring_buffer_per_cpu *cpu_buffer)
 {
-	__this_cpu_and(current_context, __this_cpu_read(current_context) - 1);
+	cpu_buffer->current_context &= cpu_buffer->current_context - 1;
 }
 
 #else
 
-#define trace_recursive_lock()		(0)
-#define trace_recursive_unlock()	do { } while (0)
+#define trace_recursive_lock(cpu_buffer)	(0)
+#define trace_recursive_unlock(cpu_buffer)	do { } while (0)
 
 #endif
 
@@ -2741,35 +2673,34 @@ ring_buffer_lock_reserve(struct ring_buffer *buffer, unsigned long length)
 	/* If we are tracing schedule, we don't want to recurse */
 	preempt_disable_notrace();
 
-	if (atomic_read(&buffer->record_disabled))
-		goto out_nocheck;
-
-	if (trace_recursive_lock())
-		goto out_nocheck;
+	if (unlikely(atomic_read(&buffer->record_disabled)))
+		goto out;
 
 	cpu = raw_smp_processor_id();
 
-	if (!cpumask_test_cpu(cpu, buffer->cpumask))
+	if (unlikely(!cpumask_test_cpu(cpu, buffer->cpumask)))
 		goto out;
 
 	cpu_buffer = buffer->buffers[cpu];
 
-	if (atomic_read(&cpu_buffer->record_disabled))
+	if (unlikely(atomic_read(&cpu_buffer->record_disabled)))
 		goto out;
 
-	if (length > BUF_MAX_DATA_SIZE)
+	if (unlikely(length > BUF_MAX_DATA_SIZE))
+		goto out;
+
+	if (unlikely(trace_recursive_lock(cpu_buffer)))
 		goto out;
 
 	event = rb_reserve_next_event(buffer, cpu_buffer, length);
 	if (!event)
-		goto out;
+		goto out_unlock;
 
 	return event;
 
+ out_unlock:
+	trace_recursive_unlock(cpu_buffer);
  out:
-	trace_recursive_unlock();
-
- out_nocheck:
 	preempt_enable_notrace();
 	return NULL;
 }
@@ -2859,7 +2790,7 @@ int ring_buffer_unlock_commit(struct ring_buffer *buffer,
 
 	rb_wakeups(buffer, cpu_buffer);
 
-	trace_recursive_unlock();
+	trace_recursive_unlock(cpu_buffer);
 
 	preempt_enable_notrace();
 
@@ -2970,7 +2901,7 @@ void ring_buffer_discard_commit(struct ring_buffer *buffer,
  out:
 	rb_end_commit(cpu_buffer);
 
-	trace_recursive_unlock();
+	trace_recursive_unlock(cpu_buffer);
 
 	preempt_enable_notrace();
 
@@ -4647,8 +4578,9 @@ static int rb_cpu_notify(struct notifier_block *self,
 	struct ring_buffer *buffer =
 		container_of(self, struct ring_buffer, cpu_notify);
 	long cpu = (long)hcpu;
-	int cpu_i, nr_pages_same;
-	unsigned int nr_pages;
+	long nr_pages_same;
+	int cpu_i;
+	unsigned long nr_pages;
 
 	switch (action) {
 	case CPU_UP_PREPARE:

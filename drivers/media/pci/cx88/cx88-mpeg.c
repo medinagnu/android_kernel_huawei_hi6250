@@ -252,7 +252,6 @@ void cx8802_buf_queue(struct cx8802_dev *dev, struct cx88_buffer *buf)
 	struct cx88_dmaqueue  *cx88q = &dev->mpegq;
 
 	dprintk( 1, "cx8802_buf_queue\n" );
-	/* add jump to start */
 	buf->risc.cpu[1] = cpu_to_le32(buf->risc.dma + 8);
 	buf->risc.jmp[0] = cpu_to_le32(RISC_JUMP | RISC_CNT_INC);
 	buf->risc.jmp[1] = cpu_to_le32(buf->risc.dma + 8);

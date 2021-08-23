@@ -23,6 +23,9 @@
 #include <linux/mm_inline.h>
 
 #include "internal.h"
+#ifdef CONFIG_TASK_PROTECT_LRU
+#include <linux/hisi/protect_lru.h>
+#endif
 
 int can_do_mlock(void)
 {
@@ -103,6 +106,9 @@ static bool __munlock_isolate_lru_page(struct page *page, bool getpage)
 		lruvec = mem_cgroup_page_lruvec(page, page_zone(page));
 		if (getpage)
 			get_page(page);
+#ifdef CONFIG_TASK_PROTECT_LRU
+		del_page_from_protect_lru_list(page, lruvec);
+#endif
 		ClearPageLRU(page);
 		del_page_from_lru_list(page, lruvec, page_lru(page));
 		return true;
@@ -343,19 +349,7 @@ static void __munlock_pagevec(struct pagevec *pvec, struct zone *zone)
 		__putback_lru_fast(&pvec_putback, pgrescued);
 }
 
-/*
- * Fill up pagevec for __munlock_pagevec using pte walk
- *
- * The function expects that the struct page corresponding to @start address is
- * a non-TPH page already pinned and in the @pvec, and that it belongs to @zone.
- *
- * The rest of @pvec is filled by subsequent pages within the same pmd and same
- * zone, as long as the pte's are present and vm_normal_page() succeeds. These
- * pages also get pinned.
- *
- * Returns the address of the next page that should be scanned. This equals
- * @start + PAGE_SIZE when no page could be added by the pte walk.
- */
+
 static unsigned long __munlock_pagevec_fill(struct pagevec *pvec,
 		struct vm_area_struct *vma, int zoneid,	unsigned long start,
 		unsigned long end)
@@ -510,7 +504,8 @@ static int mlock_fixup(struct vm_area_struct *vma, struct vm_area_struct **prev,
 
 	pgoff = vma->vm_pgoff + ((start - vma->vm_start) >> PAGE_SHIFT);
 	*prev = vma_merge(mm, *prev, start, end, newflags, vma->anon_vma,
-			  vma->vm_file, pgoff, vma_policy(vma));
+			  vma->vm_file, pgoff, vma_policy(vma),
+			  vma_get_anon_name(vma));
 	if (*prev) {
 		vma = *prev;
 		goto success;

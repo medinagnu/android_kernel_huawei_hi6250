@@ -221,7 +221,6 @@ void odm_SetRxIdleAnt(struct dm_odm_t *pDM_Odm,
 
 /* 3 Export Interface */
 
-/*  2011/09/21 MH Add to describe different team necessary resource allocate?? */
 void ODM23a_DMInit(struct dm_odm_t *pDM_Odm)
 {
 	/* For all IC series */
@@ -1481,7 +1480,6 @@ u32 ConvertTo_dB23a(u32 Value)
 /* Set Single/Dual Antenna default setting for products that do not
  * do detection in advance. */
 /*  */
-/*  Added by Joseph, 2012.03.22 */
 /*  */
 void ODM_SingleDualAntennaDefaultSetting(struct dm_odm_t *pDM_Odm)
 {

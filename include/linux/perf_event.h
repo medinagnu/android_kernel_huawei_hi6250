@@ -245,14 +245,7 @@ struct pmu {
 	 */
 	void (*read)			(struct perf_event *event);
 
-	/*
-	 * Group events scheduling is treated as a transaction, add
-	 * group events as a whole and perform one schedulability test.
-	 * If the test fails, roll back the whole group
-	 *
-	 * Start the transaction, after this ->add() doesn't need to
-	 * do schedulability tests.
-	 */
+	
 	void (*start_txn)		(struct pmu *pmu); /* optional */
 	/*
 	 * If ->start_txn() disabled the ->add() schedulability test
@@ -375,6 +368,12 @@ struct perf_event {
 	int				nr_siblings;
 	int				group_flags;
 	struct perf_event		*group_leader;
+
+	/*
+	 * Protect the pmu, attributes and context of a group leader.
+	 * Note: does not protect the pointer to the group_leader.
+	 */
+	struct mutex			group_leader_mutex;
 	struct pmu			*pmu;
 
 	enum perf_event_active_state	state;
