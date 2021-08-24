@@ -1941,7 +1941,7 @@ static int mipi_samsung_s6e3hf4_probe(struct platform_device *pdev)
 		pinfo->hiace_param.iGlobalHistSlopeCutRatio = 410;
 		pinfo->hiace_param.iMaxLcdLuminance = 500;
 		pinfo->hiace_param.iMinLcdLuminance = 3;
-		strncpy(pinfo->hiace_param.chCfgName, "/product/etc/display/effect/algorithm/hdr_engine.xml", sizeof(pinfo->hiace_param.chCfgName) - 1);
+		strncpy(pinfo->hiace_param.chCfgName, "/hwprdct/etc/display/effect/algorithm/hdr_engine.xml", sizeof(pinfo->hiace_param.chCfgName) - 1);
 	}
 
 	//ldi

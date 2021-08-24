@@ -869,7 +869,7 @@ void st_get_rawdata_test(struct ts_rawdata_info *info, struct ts_data *chip_data
 	TS_LOG_INFO("rows_size:%d, columns_size:%d, totol size(columns_size*rows_size):%d\n", rows_size, columns_size, rows_size*columns_size);
 
 #ifdef BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE
-	snprintf(file_path, sizeof(file_path), "/product/etc/firmware/ts/st/fts.csv");
+	snprintf(file_path, sizeof(file_path), "/hwprdct/etc/firmware/ts/st/fts.csv");
 #else
 	snprintf(file_path, sizeof(file_path), "/vendor/firmware/ts/st/fts.csv");
 #endif

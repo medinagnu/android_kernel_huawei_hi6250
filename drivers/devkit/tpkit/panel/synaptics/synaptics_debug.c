@@ -1063,7 +1063,7 @@ static int f54_rawimage_report(void)
 			f54->rmi4_data->rmi4_mod_info.project_id_string,
 			f54->rmi4_data->module_name);
 #ifdef BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE
-		snprintf(file_path, sizeof(file_path), "/product/etc/firmware/ts/%s", file_name);
+		snprintf(file_path, sizeof(file_path), "/hwprdct/etc/firmware/ts/%s", file_name);
 #else
 		snprintf(file_path, sizeof(file_path), "/vendor/firmware/ts/%s", file_name);
 #endif

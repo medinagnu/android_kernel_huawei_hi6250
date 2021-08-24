@@ -250,7 +250,7 @@ int cyttsp5_cm_cp_test(struct seq_file *m, void *v)
 	int cp_ret = 0;
 	int cm_ret = 0;
 	mm_segment_t fs;
-	char config_file_dir_feima3[] = "/product/etc/tp_test_parameters/";
+	char config_file_dir_feima3[] = "/hwprdct/etc/tp_test_parameters/";
 	char config_file_dir_feima2[] =
 			"/system/vendor/etc/tp_test_parameters/";
 

@@ -283,7 +283,7 @@ static int32_t nvt_load_mp_ctrlram_ini(void)
 
 	TS_LOG_INFO("%s:++\n", __func__);
 #ifdef BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE
-	snprintf(file_path, sizeof(file_path), "/product/etc/firmware/ts/%s_short_open.ini", novatek_project_id);
+	snprintf(file_path, sizeof(file_path), "/hwprdct/etc/firmware/ts/%s_short_open.ini", novatek_project_id);
 #else
 	snprintf(file_path, sizeof(file_path), "/vendor/firmware/ts/%s_short_open.ini", novatek_project_id);
 //	snprintf(file_path, sizeof(file_path), "/data/nvt_data/%s_short_open.ini", novatek_project_id);
@@ -470,7 +470,7 @@ static int32_t nvt_load_mp_ctrlram_bin(void)
 
 	TS_LOG_INFO("%s:++\n", __func__);
 #ifdef BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE
-	snprintf(file_path, sizeof(file_path), "/product/etc/firmware/ts/%s_short_open.bin", novatek_project_id);	
+	snprintf(file_path, sizeof(file_path), "/hwprdct/etc/firmware/ts/%s_short_open.bin", novatek_project_id);	
 #else
 	snprintf(file_path, sizeof(file_path), "/vendor/firmware/ts/%s_short_open.bin", novatek_project_id);
 //	snprintf(file_path, sizeof(file_path), "/data/nvt_data/%s_short_open.bin", novatek_project_id);
@@ -592,7 +592,7 @@ static int32_t nvt_load_mp_signal_gen_setting(void)
 
 	TS_LOG_INFO("%s:++\n", __func__);
 #ifdef BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE
-	snprintf(file_path, sizeof(file_path), "/product/etc/firmware/ts/%s_default.ini", novatek_project_id);
+	snprintf(file_path, sizeof(file_path), "/hwprdct/etc/firmware/ts/%s_default.ini", novatek_project_id);
 #else
 	snprintf(file_path, sizeof(file_path), "/vendor/firmware/ts/%s_default.ini", novatek_project_id);
 //	snprintf(file_path, sizeof(file_path), "/data/nvt_data/%s_default.ini", novatek_project_id);
